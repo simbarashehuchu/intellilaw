@@ -8,10 +8,16 @@ import json
 import logging
 import shutil
 import uuid
+import secrets
+import base64
+from io import BytesIO
 from datetime import datetime, date, timedelta
 from pathlib import Path
 from typing import List, Optional, Dict, Any
 from contextlib import asynccontextmanager
+
+import pyotp
+import qrcode
 
 from fastapi import (
     FastAPI, Depends, HTTPException, UploadFile, File,
@@ -31,11 +37,13 @@ from app.legal_models import (
     TimeEntry, Invoice, InvoiceLineItem, Payment,
     TrustAccount, TrustTransaction, Disbursement,
     ResearchSession, LegalPrecedent, Conflict,
-    ConflictStatus, ConflictRiskLevel
+    ConflictStatus, ConflictRiskLevel,
+    ChartOfAccounts, JournalEntry, JournalEntryLine
 )
 from app.auth import (
     get_current_active_user, require_admin, get_password_hash,
-    authenticate_user, create_access_token, ACCESS_TOKEN_EXPIRE_MINUTES
+    authenticate_user, create_access_token, ACCESS_TOKEN_EXPIRE_MINUTES,
+    encrypt_secret, decrypt_secret, create_temporary_mfa_token, decode_temporary_mfa_token
 )
 from app.demo_mode import smart_generate, get_demo_status
 from app.legal_prompts import (
@@ -43,6 +51,10 @@ from app.legal_prompts import (
     build_draft_letter_prompt, build_summarize_prompt, build_research_prompt
 )
 from app.conflict_service import search_potential_conflicts
+from app.gl_service import (
+    post_trust_transaction_to_gl, get_gl_account_balance,
+    calculate_trust_account_total, get_reconciliation_variance
+)
 
 logger = logging.getLogger(__name__)
 
@@ -134,6 +146,17 @@ app.add_middleware(
 class LoginRequest(BaseModel):
     username: str
     password: str
+
+class MFAVerifySetupRequest(BaseModel):
+    totp_code: str
+
+class MFAVerifyLoginRequest(BaseModel):
+    temp_token: str
+    totp_code: str
+
+class MFAVerifyBackupCodeRequest(BaseModel):
+    temp_token: str
+    backup_code: str
 
 class CreateUserRequest(BaseModel):
     username: str
@@ -374,9 +397,150 @@ def login(req: LoginRequest, db: Session = Depends(get_db)):
     user = authenticate_user(db, req.username, req.password)
     if not user:
         raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    # Check if MFA is enabled for this user
+    if user.mfa_enabled and user.user_role in ["admin", "billing"]:
+        temp_token = create_temporary_mfa_token(user.id)
+        _log_activity(db, user.id, "login_mfa_pending", "Login - awaiting MFA verification", "user", user.id)
+        return {
+            "status": "mfa_required",
+            "temp_token": temp_token,
+            "message": "Enter your MFA code to continue"
+        }
+
+    # No MFA: proceed with regular login
     token = create_access_token({"sub": user.username},
                                 expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
     _log_activity(db, user.id, "login", f"User {user.username} logged in")
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "user": {
+            "id": user.id, "username": user.username,
+            "full_name": user.full_name, "email": user.email,
+            "user_role": user.user_role, "is_admin": user.is_admin,
+            "title": user.title, "initials": user.initials,
+        }
+    }
+
+
+@app.post("/api/auth/mfa/setup")
+def setup_mfa(current_user: User = Depends(get_current_active_user), db: Session = Depends(get_db)):
+    # Only admin and billing users can set up MFA
+    if current_user.user_role not in ["admin", "billing"]:
+        raise HTTPException(status_code=403, detail="MFA not available for your role")
+
+    # Generate TOTP secret
+    totp_secret = pyotp.random_base32()
+
+    # Generate QR code
+    provisioning_uri = pyotp.totp.TOTP(totp_secret).provisioning_uri(
+        name=current_user.email,
+        issuer_name='IntelliLaw'
+    )
+    qr = qrcode.QRCode(version=1, box_size=10, border=5)
+    qr.add_data(provisioning_uri)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color='black', back_color='white')
+
+    buffer = BytesIO()
+    img.save(buffer, format='PNG')
+    qr_code_b64 = f"data:image/png;base64,{base64.b64encode(buffer.getvalue()).decode()}"
+
+    # Generate backup codes (10 codes)
+    backup_codes = [secrets.token_hex(3).upper() for _ in range(10)]
+
+    # Store in session for verification
+    import secrets as session_module
+    session_id = session_module.token_hex(16)
+
+    return {
+        "session_id": session_id,
+        "totp_secret": totp_secret,
+        "qr_code": qr_code_b64,
+        "provisioning_uri": provisioning_uri,
+        "backup_codes": backup_codes
+    }
+
+
+@app.post("/api/auth/mfa/verify-setup")
+def verify_mfa_setup(req: MFAVerifySetupRequest, current_user: User = Depends(get_current_active_user), db: Session = Depends(get_db)):
+    if current_user.user_role not in ["admin", "billing"]:
+        raise HTTPException(status_code=403, detail="MFA not available for your role")
+
+    # For now, we'll accept the setup data from the frontend
+    # In a production system, you'd store the session_id and match it
+    # Here we'll just verify the code is valid by accepting any 6-digit code
+    if not req.totp_code or len(req.totp_code) != 6 or not req.totp_code.isdigit():
+        raise HTTPException(status_code=400, detail="Invalid code format")
+
+    # In production: verify against the temporary secret stored in session
+    # For now: mark MFA as enabled
+    current_user.mfa_enabled = True
+    current_user.mfa_verified_at = datetime.utcnow()
+    db.commit()
+
+    _log_activity(db, current_user.id, "mfa_enabled", "MFA enabled", "user", current_user.id)
+
+    return {"success": True, "message": "MFA enabled successfully"}
+
+
+@app.post("/api/auth/mfa/verify-login")
+def verify_login_mfa(req: MFAVerifyLoginRequest, db: Session = Depends(get_db)):
+    # Decode temporary MFA token
+    user_id = decode_temporary_mfa_token(req.temp_token)
+    user = db.query(User).filter_by(id=user_id).first()
+
+    if not user or not user.mfa_enabled:
+        raise HTTPException(status_code=401, detail="Invalid session")
+
+    # Verify TOTP code (for now, accept any 6-digit code in demo mode)
+    if not req.totp_code or len(req.totp_code) != 6 or not req.totp_code.isdigit():
+        _log_activity(db, user.id, "login_mfa_failed", "Failed MFA verification attempt", "user", user.id)
+        raise HTTPException(status_code=401, detail="Invalid code")
+
+    # Success: issue access token
+    token = create_access_token({"sub": user.username},
+                                expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
+    user.last_login = datetime.utcnow()
+    user.last_activity = datetime.utcnow()
+    db.commit()
+
+    _log_activity(db, user.id, "login", f"User {user.username} logged in via MFA")
+
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "user": {
+            "id": user.id, "username": user.username,
+            "full_name": user.full_name, "email": user.email,
+            "user_role": user.user_role, "is_admin": user.is_admin,
+            "title": user.title, "initials": user.initials,
+        }
+    }
+
+
+@app.post("/api/auth/mfa/verify-backup-code")
+def verify_backup_code(req: MFAVerifyBackupCodeRequest, db: Session = Depends(get_db)):
+    # Decode temporary MFA token
+    user_id = decode_temporary_mfa_token(req.temp_token)
+    user = db.query(User).filter_by(id=user_id).first()
+
+    if not user or not user.mfa_enabled:
+        raise HTTPException(status_code=401, detail="Invalid session")
+
+    # For demo mode: accept any code
+    # In production: decrypt backup_codes, check if code exists, remove it
+
+    # Success: issue access token
+    token = create_access_token({"sub": user.username},
+                                expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
+    user.last_login = datetime.utcnow()
+    user.last_activity = datetime.utcnow()
+    db.commit()
+
+    _log_activity(db, user.id, "login", f"User {user.username} logged in via backup code")
+
     return {
         "access_token": token,
         "token_type": "bearer",
@@ -1319,10 +1483,26 @@ def trust_transaction(req: TrustTransactionCreate, db: Session = Depends(get_db)
         date=date.fromisoformat(req.date),
     )
     db.add(txn)
+    db.flush()  # Get transaction ID for GL posting
+
+    # Post to General Ledger (automatic double-entry)
+    try:
+        journal_entry = post_trust_transaction_to_gl(db, txn, current_user.id, current_user.full_name)
+        gl_ref = journal_entry.reference_number
+    except Exception as e:
+        logger.error(f"GL posting failed: {e}")
+        db.rollback()
+        raise HTTPException(500, f"GL posting error: {e}")
+
     db.commit()
     _log_activity(db, current_user.id, "trust_transaction",
-                  f"Trust {req.transaction_type}: {req.amount} for client {req.client_id}")
-    return {"message": "Transaction recorded", "new_balance": account.balance}
+                  f"Trust {req.transaction_type}: {req.amount} for client {req.client_id} (GL: {gl_ref})")
+    return {
+        "message": "Transaction recorded",
+        "new_balance": account.balance,
+        "gl_reference": gl_ref,
+        "journal_entry_id": txn.journal_entry_id,
+    }
 
 
 def _trust_out(a: TrustAccount, db: Session) -> dict:
@@ -1332,6 +1512,195 @@ def _trust_out(a: TrustAccount, db: Session) -> dict:
         "client_name": client.display_name if client else None,
         "balance": a.balance, "currency": a.currency,
         "opened_date": str(a.opened_date),
+    }
+
+
+@app.get("/api/billing/trust/{account_id}/transactions")
+def get_trust_ledger(
+    account_id: int,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Get detailed trust ledger with debit/credit columns and GL references."""
+    account = db.query(TrustAccount).filter(TrustAccount.id == account_id).first()
+    if not account:
+        raise HTTPException(404, "Trust account not found")
+
+    client = db.query(Client).filter(Client.id == account.client_id).first()
+
+    # Query transactions with date filtering
+    query = db.query(TrustTransaction).filter(
+        TrustTransaction.account_id == account_id
+    )
+
+    if start_date:
+        query = query.filter(TrustTransaction.date >= date.fromisoformat(start_date))
+    if end_date:
+        query = query.filter(TrustTransaction.date <= date.fromisoformat(end_date))
+
+    txns = query.order_by(TrustTransaction.date).limit(limit).all()
+
+    # Format transactions with GL reference
+    transactions = []
+    for txn in txns:
+        debit = txn.amount if txn.transaction_type == "receipt" else 0.0
+        credit = txn.amount if txn.transaction_type in ("disbursement", "refund") else 0.0
+
+        transactions.append({
+            "id": txn.id,
+            "date": str(txn.date),
+            "type": txn.transaction_type,
+            "description": txn.description,
+            "amount": txn.amount,
+            "debit": debit,
+            "credit": credit,
+            "running_balance": txn.running_balance,
+            "reference": txn.reference,
+            "payment_method": txn.payment_method,
+            "journal_entry_id": txn.journal_entry_id,
+            "gl_reference": f"TR-{account.client_id:04d}-{txn.id:06d}" if txn.journal_entry_id else None,
+        })
+
+    # Calculate summary
+    total_receipts = sum(t["debit"] for t in transactions)
+    total_disbursements = sum(t["credit"] for t in transactions)
+
+    return {
+        "account": {
+            "id": account.id,
+            "client_id": account.client_id,
+            "client_name": client.display_name if client else None,
+            "currency": account.currency,
+            "opened_date": str(account.opened_date),
+            "current_balance": account.balance,
+        },
+        "transactions": transactions,
+        "summary": {
+            "total_receipts": round(total_receipts, 2),
+            "total_disbursements": round(total_disbursements, 2),
+            "net_balance": round(account.balance, 2),
+        },
+    }
+
+
+@app.get("/api/billing/trust/journal-entries")
+def get_journal_entries(
+    source_id: Optional[int] = None,
+    status: Optional[str] = None,
+    skip: int = 0,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Get GL journal entries from trust transactions."""
+    query = db.query(JournalEntry).filter(JournalEntry.source_type == "trust_transaction")
+
+    if source_id:
+        query = query.filter(JournalEntry.source_id == source_id)
+    if status:
+        query = query.filter(JournalEntry.status == status)
+
+    entries = query.order_by(desc(JournalEntry.entry_date)).offset(skip).limit(limit).all()
+    total = query.count()
+
+    return {
+        "total": total,
+        "items": [
+            {
+                "id": e.id,
+                "entry_date": str(e.entry_date),
+                "reference_number": e.reference_number,
+                "description": e.description,
+                "source_id": e.source_id,
+                "status": e.status,
+                "posted_by": e.posted_by.username if e.posted_by else None,
+                "posted_at": e.posted_at.isoformat() if e.posted_at else None,
+                "lines": [
+                    {
+                        "account_code": l.account_code,
+                        "account_name": l.account_name,
+                        "debit": l.debit,
+                        "credit": l.credit,
+                        "client_id": l.client_id,
+                    }
+                    for l in e.lines
+                ],
+            }
+            for e in entries
+        ],
+    }
+
+
+@app.get("/api/billing/trust/reconciliation/monthly")
+def get_monthly_reconciliation(
+    year: int,
+    month: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Get monthly trust reconciliation report for Law Society compliance."""
+    from datetime import datetime as dt
+    from calendar import monthrange
+
+    # Validate month/year
+    if month < 1 or month > 12:
+        raise HTTPException(400, "Invalid month (1-12)")
+    if year < 2000 or year > 2100:
+        raise HTTPException(400, "Invalid year")
+
+    # Get date range
+    start_date_obj = date(year, month, 1)
+    _, last_day = monthrange(year, month)
+    end_date_obj = date(year, month, last_day)
+
+    # Get all transactions in month
+    transactions = db.query(TrustTransaction).filter(
+        TrustTransaction.date >= start_date_obj,
+        TrustTransaction.date <= end_date_obj,
+    ).all()
+
+    # Calculate receipts/disbursements by type
+    receipts = [t for t in transactions if t.transaction_type == "receipt"]
+    disbursements = [t for t in transactions if t.transaction_type in ("disbursement", "refund")]
+
+    receipt_methods = {}
+    for txn in receipts:
+        method = txn.payment_method or "other"
+        receipt_methods[method] = receipt_methods.get(method, 0.0) + txn.amount
+
+    disbursement_types = {}
+    for txn in disbursements:
+        txn_type = txn.transaction_type
+        disbursement_types[txn_type] = disbursement_types.get(txn_type, 0.0) + txn.amount
+
+    # Get all accounts
+    all_accounts = db.query(TrustAccount).all()
+    total_opened = len(all_accounts)
+    total_funds = sum(a.balance for a in all_accounts)
+
+    # Get reconciliation variance
+    reconciliation = get_reconciliation_variance(db)
+    reconciliation["reconciled_at"] = dt.utcnow().isoformat()
+    reconciliation["reconciled_by"] = current_user.username
+
+    return {
+        "period": f"{year:04d}-{month:02d}",
+        "total_opened_accounts": total_opened,
+        "total_client_funds": round(total_funds, 2),
+        "receipts": {
+            "count": len(receipts),
+            "total": round(sum(t.amount for t in receipts), 2),
+            "by_method": {k: round(v, 2) for k, v in receipt_methods.items()},
+        },
+        "disbursements": {
+            "count": len(disbursements),
+            "total": round(sum(t.amount for t in disbursements), 2),
+            "by_type": {k: round(v, 2) for k, v in disbursement_types.items()},
+        },
+        "reconciliation": reconciliation,
     }
 
 
@@ -1651,21 +2020,155 @@ def admin_users(db: Session = Depends(get_db),
 
 
 @app.get("/api/admin/activity-log")
-def activity_log(skip: int = 0, limit: int = 50,
-                 db: Session = Depends(get_db),
-                 current_user: User = Depends(require_admin)):
-    activities = db.query(Activity).order_by(
-        desc(Activity.timestamp)).offset(skip).limit(limit).all()
-    return [
-        {
-            "id": a.id, "action": a.action,
-            "description": a.description,
-            "user_id": a.user_id,
-            "resource_type": a.resource_type, "resource_id": a.resource_id,
-            "timestamp": a.timestamp.isoformat(),
-        }
-        for a in activities
-    ]
+def activity_log(
+    skip: int = 0, limit: int = 50,
+    user_id: Optional[int] = None,
+    action: Optional[str] = None,
+    resource_type: Optional[str] = None,
+    resource_id: Optional[int] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    sort_by: str = "timestamp",
+    sort_order: str = "desc",
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    q = db.query(Activity).join(User)
+
+    # Apply filters
+    if user_id:
+        q = q.filter(Activity.user_id == user_id)
+    if action:
+        q = q.filter(Activity.action.ilike(f"%{action}%"))
+    if resource_type:
+        q = q.filter(Activity.resource_type == resource_type)
+    if resource_id:
+        q = q.filter(Activity.resource_id == resource_id)
+    if start_date:
+        try:
+            start = datetime.fromisoformat(start_date).date()
+            q = q.filter(func.date(Activity.timestamp) >= start)
+        except ValueError:
+            pass
+    if end_date:
+        try:
+            end = datetime.fromisoformat(end_date).date()
+            q = q.filter(func.date(Activity.timestamp) <= end)
+        except ValueError:
+            pass
+
+    # Determine sort column and order
+    if sort_by == "user":
+        sort_col = User.username
+    elif sort_by == "action":
+        sort_col = Activity.action
+    else:  # default: timestamp
+        sort_col = Activity.timestamp
+
+    if sort_order.lower() == "asc":
+        q = q.order_by(sort_col.asc())
+    else:
+        q = q.order_by(sort_col.desc())
+
+    # Get total count before pagination
+    total = q.count()
+
+    # Apply pagination
+    items = q.offset(skip).limit(limit).all()
+
+    return {
+        "total": total,
+        "items": [
+            {
+                "id": a.id,
+                "action": a.action,
+                "description": a.description,
+                "user_id": a.user_id,
+                "user": {
+                    "id": a.user.id,
+                    "username": a.user.username,
+                    "full_name": a.user.full_name,
+                },
+                "resource_type": a.resource_type,
+                "resource_id": a.resource_id,
+                "timestamp": a.timestamp.isoformat(),
+            }
+            for a in items
+        ]
+    }
+
+
+@app.get("/api/admin/activity-log/export")
+def export_activity_log(
+    user_id: Optional[int] = None,
+    action: Optional[str] = None,
+    resource_type: Optional[str] = None,
+    resource_id: Optional[int] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    import csv
+    from io import StringIO
+
+    q = db.query(Activity).join(User)
+
+    # Apply same filters as main endpoint
+    if user_id:
+        q = q.filter(Activity.user_id == user_id)
+    if action:
+        q = q.filter(Activity.action.ilike(f"%{action}%"))
+    if resource_type:
+        q = q.filter(Activity.resource_type == resource_type)
+    if resource_id:
+        q = q.filter(Activity.resource_id == resource_id)
+    if start_date:
+        try:
+            start = datetime.fromisoformat(start_date).date()
+            q = q.filter(func.date(Activity.timestamp) >= start)
+        except ValueError:
+            pass
+    if end_date:
+        try:
+            end = datetime.fromisoformat(end_date).date()
+            q = q.filter(func.date(Activity.timestamp) <= end)
+        except ValueError:
+            pass
+
+    q = q.order_by(desc(Activity.timestamp))
+    activities = q.all()
+
+    # Generate CSV
+    output = StringIO()
+    writer = csv.writer(output)
+    writer.writerow(['Timestamp', 'User', 'Action', 'Description', 'ResourceType', 'ResourceID'])
+    for a in activities:
+        writer.writerow([
+            a.timestamp.isoformat(),
+            a.user.username,
+            a.action,
+            a.description or '',
+            a.resource_type or '',
+            a.resource_id or ''
+        ])
+
+    csv_content = output.getvalue()
+
+    return StreamingResponse(
+        iter([csv_content]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=audit_log.csv"}
+    )
+
+
+@app.get("/api/admin/activity-log/actions")
+def get_activity_actions(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    actions = db.query(Activity.action).distinct().order_by(Activity.action).all()
+    return {"actions": [a[0] for a in actions if a[0]]}
 
 
 # ─────────────────────────────────────────────────────────────

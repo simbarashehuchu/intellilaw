@@ -81,6 +81,18 @@ class ConflictRiskLevel(str, enum.Enum):
     HIGH         = "high"
     CLEAR        = "clear"
 
+class AccountType(str, enum.Enum):
+    ASSET        = "asset"
+    LIABILITY    = "liability"
+    EQUITY       = "equity"
+    REVENUE      = "revenue"
+    EXPENSE      = "expense"
+
+class JournalEntryStatus(str, enum.Enum):
+    DRAFT        = "draft"
+    POSTED       = "posted"
+    REVERSED     = "reversed"
+
 
 # ══════════════════════════════════════════════════════
 # CLIENTS
@@ -488,7 +500,88 @@ class TrustTransaction(Base):
     created_by      = Column(Integer, ForeignKey("users.id"))
     created_at      = Column(DateTime, default=datetime.utcnow)
 
+    journal_entry_id = Column(Integer, ForeignKey("journal_entries.id", ondelete="SET NULL"), nullable=True)
+
     account = relationship("TrustAccount", back_populates="transactions")
+    journal_entry = relationship("JournalEntry", foreign_keys=[journal_entry_id])
+
+
+# ══════════════════════════════════════════════════════
+# GENERAL LEDGER — DOUBLE-ENTRY BOOKKEEPING
+# ══════════════════════════════════════════════════════
+
+class ChartOfAccounts(Base):
+    """Chart of Accounts — pre-seeded GL account master"""
+    __tablename__ = "chart_of_accounts"
+
+    id              = Column(Integer, primary_key=True, index=True)
+    account_code    = Column(String(20), unique=True, index=True, nullable=False)  # e.g. "1000", "2100"
+    account_name    = Column(String(100), nullable=False)
+    account_type    = Column(String(20), nullable=False)  # asset | liability | equity | revenue | expense
+
+    # Trust accounting flags
+    is_trust_account = Column(Boolean, default=False)
+    is_client_funds = Column(Boolean, default=False)     # Master GL for all client funds
+
+    description     = Column(Text)
+    active          = Column(Boolean, default=True)
+    created_at      = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index("ix_chart_code", "account_code"),
+    )
+
+
+class JournalEntry(Base):
+    """Journal Entry — automatic GL posting from trust transactions"""
+    __tablename__ = "journal_entries"
+
+    id              = Column(Integer, primary_key=True, index=True)
+    entry_date      = Column(Date, nullable=False, index=True)
+    reference_number = Column(String(100), index=True, nullable=False)  # e.g. "TR-2024-00123"
+    description     = Column(Text)
+
+    # Source document
+    source_type     = Column(String(50))     # "trust_transaction"
+    source_id       = Column(Integer)        # ID of TrustTransaction
+
+    status          = Column(String(20), default="posted")  # draft | posted | reversed
+
+    posted_by_id    = Column(Integer, ForeignKey("users.id"), nullable=False)
+    posted_at       = Column(DateTime, default=datetime.utcnow)
+
+    created_at      = Column(DateTime, default=datetime.utcnow)
+    updated_at      = Column(DateTime, onupdate=datetime.utcnow)
+
+    posted_by       = relationship("User", foreign_keys=[posted_by_id])
+    lines           = relationship("JournalEntryLine", cascade="all, delete-orphan", back_populates="entry")
+
+    __table_args__ = (
+        Index("ix_journal_date", "entry_date"),
+        Index("ix_journal_ref", "reference_number"),
+    )
+
+
+class JournalEntryLine(Base):
+    """Journal Entry Line — individual GL line item"""
+    __tablename__ = "journal_entry_lines"
+
+    id              = Column(Integer, primary_key=True, index=True)
+    entry_id        = Column(Integer, ForeignKey("journal_entries.id", ondelete="CASCADE"), nullable=False)
+
+    account_code    = Column(String(20), nullable=False)  # e.g. "1100", "2100"
+    account_name    = Column(String(100))                 # Denormalized for reporting
+
+    debit           = Column(Float, default=0.0)
+    credit          = Column(Float, default=0.0)
+
+    client_id       = Column(Integer, ForeignKey("clients.id"), nullable=True)
+
+    description     = Column(Text)
+    created_at      = Column(DateTime, default=datetime.utcnow)
+
+    entry           = relationship("JournalEntry", back_populates="lines")
+    client          = relationship("Client", foreign_keys=[client_id])
 
 
 # ══════════════════════════════════════════════════════
