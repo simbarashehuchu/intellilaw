@@ -260,7 +260,8 @@ const NAV = [
   { id:'calendar',  label:'Calendar',     icon:'calendar'  },
   { id:'tasks',     label:'Tasks',        icon:'tasks'     },
   { id:'billing',   label:'Billing',      icon:'billing'   },
-  { id:'trust',     label:'Trust',        icon:'trust'     },
+  { id:'trust',     label:'Trust',            icon:'trust'     },
+  { id:'reconciliation', label:'GL Reconciliation', icon:'activity' },
   { id:'research',  label:'Research',     icon:'research'  },
   { id:'ai',        label:'AI Assistant', icon:'ai'        },
   { id:'users',     label:'Users',        icon:'users'     },
@@ -2687,6 +2688,213 @@ function Trust() {
   )
 }
 
+// ─── GL RECONCILIATION ──────────────────────────────────────────────────────────
+function TrustReconciliation() {
+  const [monthYear, setMonthYear] = useState(() => {
+    const d = new Date()
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+  })
+  const [data, setData] = useState(null)
+  const [loading, setLoading] = useState(false)
+
+  const load = async () => {
+    const [year, month] = monthYear.split('-')
+    setLoading(true)
+    try {
+      const { data: d } = await API.get('/billing/trust/reconciliation/monthly', {
+        params: { year: parseInt(year), month: parseInt(month) }
+      })
+      setData(d)
+    } catch(err) {
+      toast.error('Failed to load reconciliation data')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    load()
+  }, [monthYear])
+
+  return (
+    <div>
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:20 }}>
+        <h2 style={{ color:C.text, fontSize:20, margin:0,
+          fontFamily:'"Crimson Pro",Georgia,serif' }}>GL Reconciliation</h2>
+        <FormField label="Period" style={{ width:140 }}>
+          <input type="month" style={iS} value={monthYear}
+            onChange={e => setMonthYear(e.target.value)} />
+        </FormField>
+      </div>
+
+      {loading ? (
+        <Card><p style={{ color:C.muted }}>Loading…</p></Card>
+      ) : !data ? (
+        <Card><p style={{ color:C.muted }}>No data available.</p></Card>
+      ) : (
+        <div style={{ display:'flex', flexDirection:'column', gap:20 }}>
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(200px, 1fr))', gap:14 }}>
+            <Card>
+              <div style={{ color:C.muted, fontSize:11, textTransform:'uppercase' }}>Total Client Funds</div>
+              <div style={{ color:'#34d399', fontSize:24, fontWeight:700, fontFamily:'"Crimson Pro",Georgia,serif' }}>
+                ${(data.total_client_funds||0).toLocaleString()}
+              </div>
+              <div style={{ fontSize:12, color:C.muted, marginTop:8 }}>
+                {data.total_opened_accounts} account{data.total_opened_accounts!==1?'s':''} open
+              </div>
+            </Card>
+            <Card>
+              <div style={{ color:C.muted, fontSize:11, textTransform:'uppercase' }}>Receipts</div>
+              <div style={{ color:'#34d399', fontSize:24, fontWeight:700, fontFamily:'"Crimson Pro",Georgia,serif' }}>
+                ${(data.receipts?.total||0).toLocaleString()}
+              </div>
+              <div style={{ fontSize:12, color:C.muted, marginTop:8 }}>
+                {data.receipts?.count||0} transaction{data.receipts?.count!==1?'s':''}
+              </div>
+            </Card>
+            <Card>
+              <div style={{ color:C.muted, fontSize:11, textTransform:'uppercase' }}>Disbursements</div>
+              <div style={{ color:'#f87171', fontSize:24, fontWeight:700, fontFamily:'"Crimson Pro",Georgia,serif' }}>
+                ${(data.disbursements?.total||0).toLocaleString()}
+              </div>
+              <div style={{ fontSize:12, color:C.muted, marginTop:8 }}>
+                {data.disbursements?.count||0} transaction{data.disbursements?.count!==1?'s':''}
+              </div>
+            </Card>
+          </div>
+
+          <Card>
+            <div style={{ marginBottom:16 }}>
+              <h3 style={{ color:C.text, fontSize:14, margin:0, marginBottom:12, fontWeight:600 }}>
+                Reconciliation Status
+              </h3>
+            </div>
+
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(250px, 1fr))', gap:16 }}>
+              <div>
+                <div style={{ fontSize:11, color:C.muted, textTransform:'uppercase', marginBottom:4 }}>
+                  GL Control Balance (Account 2100)
+                </div>
+                <div style={{ fontSize:18, fontWeight:700, color:C.text2, fontFamily:'"Crimson Pro",Georgia,serif' }}>
+                  ${(data.reconciliation?.gl_control_balance||0).toLocaleString()}
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize:11, color:C.muted, textTransform:'uppercase', marginBottom:4 }}>
+                  Calculated Balance (Sum of Trusts)
+                </div>
+                <div style={{ fontSize:18, fontWeight:700, color:C.text2, fontFamily:'"Crimson Pro",Georgia,serif' }}>
+                  ${(data.reconciliation?.calculated_balance||0).toLocaleString()}
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize:11, color:C.muted, textTransform:'uppercase', marginBottom:4 }}>
+                  Variance
+                </div>
+                <div style={{
+                  fontSize:18,
+                  fontWeight:700,
+                  color: data.reconciliation?.variance > 0.01 ? '#f87171' : '#34d399',
+                  fontFamily:'"Crimson Pro",Georgia,serif'
+                }}>
+                  ${(data.reconciliation?.variance||0).toFixed(2)}
+                </div>
+              </div>
+            </div>
+
+            <div style={{ marginTop:20, paddingTop:20, borderTop:`1px solid ${C.border}` }}>
+              <div style={{
+                display:'flex',
+                alignItems:'center',
+                gap:12,
+                padding:'12px 14px',
+                background: data.reconciliation?.reconciled
+                  ? 'rgba(52,211,153,0.08)'
+                  : 'rgba(248,113,113,0.08)',
+                border: data.reconciliation?.reconciled
+                  ? '1px solid rgba(52,211,153,0.2)'
+                  : '1px solid rgba(248,113,113,0.2)',
+                borderRadius:8
+              }}>
+                <div style={{
+                  width:12,
+                  height:12,
+                  borderRadius:'50%',
+                  background: data.reconciliation?.reconciled ? '#34d399' : '#f87171'
+                }} />
+                <div>
+                  <div style={{
+                    fontSize:13,
+                    fontWeight:600,
+                    color: data.reconciliation?.reconciled ? '#34d399' : '#f87171'
+                  }}>
+                    {data.reconciliation?.reconciled ? '✓ Reconciled' : '⚠ Variance Detected'}
+                  </div>
+                  <div style={{ fontSize:11, color:C.muted, marginTop:2 }}>
+                    {data.reconciliation?.reconciled
+                      ? 'GL control account matches sum of all trust accounts'
+                      : `Difference of $${(data.reconciliation?.variance||0).toFixed(2)} found`}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </Card>
+
+          {data.receipts?.by_method && (
+            <Card>
+              <h3 style={{ color:C.text, fontSize:14, margin:0, marginBottom:12, fontWeight:600 }}>
+                Receipt Methods
+              </h3>
+              <div style={{ display:'flex', flexWrap:'wrap', gap:12 }}>
+                {Object.entries(data.receipts.by_method).map(([method, amt]) => (
+                  <div key={method} style={{
+                    padding:'10px 14px',
+                    background:C.bg2,
+                    borderRadius:6,
+                    fontSize:12
+                  }}>
+                    <div style={{ color:C.muted, fontSize:11 }}>
+                      {method.replace('_', ' ')}
+                    </div>
+                    <div style={{ color:'#34d399', fontWeight:600, fontSize:14 }}>
+                      ${amt.toLocaleString()}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
+
+          {data.disbursements?.by_type && (
+            <Card>
+              <h3 style={{ color:C.text, fontSize:14, margin:0, marginBottom:12, fontWeight:600 }}>
+                Disbursement Types
+              </h3>
+              <div style={{ display:'flex', flexWrap:'wrap', gap:12 }}>
+                {Object.entries(data.disbursements.by_type).map(([type, amt]) => (
+                  <div key={type} style={{
+                    padding:'10px 14px',
+                    background:C.bg2,
+                    borderRadius:6,
+                    fontSize:12
+                  }}>
+                    <div style={{ color:C.muted, fontSize:11 }}>
+                      {type.replace('_', ' ')}
+                    </div>
+                    <div style={{ color:'#f87171', fontWeight:600, fontSize:14 }}>
+                      ${amt.toLocaleString()}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── AUDIT LOG ──────────────────────────────────────────────────────────────
 function AuditLog() {
   const { user: currentUser } = useApp()
@@ -3560,7 +3768,7 @@ function ConflictCheckModal({ onClose, onProceed }) {
 const VIEWS = {
   dashboard: Dashboard, clients: Clients,   matters: Matters,
   documents: Documents, calendar: Calendar, tasks: Tasks,
-  billing: Billing,     trust: Trust,       research: Research,
+  billing: Billing,     trust: Trust,       reconciliation: TrustReconciliation,  research: Research,
   ai: AIAssistant,      users: Users,       audit_log: AuditLog,
   settings: Settings,
 }
