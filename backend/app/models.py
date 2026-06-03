@@ -35,6 +35,12 @@ class User(Base):
     last_login    = Column(DateTime)
     last_activity = Column(DateTime, default=datetime.utcnow)
 
+    # Multi-Factor Authentication (MFA)
+    mfa_enabled   = Column(Boolean, default=False)
+    totp_secret   = Column(String(32))          # TOTP secret (encrypted)
+    backup_codes  = Column(Text)                # JSON list of backup codes (encrypted)
+    mfa_verified_at = Column(DateTime)
+
     # Relationships
     ai_sessions   = relationship("AISession",  back_populates="user", cascade="all, delete-orphan")
     activities    = relationship("Activity",   back_populates="user", cascade="all, delete-orphan")

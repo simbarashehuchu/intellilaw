@@ -15,6 +15,8 @@ cryptography>=42.0.5
 
 # Database
 sqlalchemy==2.0.35
+sqlcipher3==3.9.2
+secure-delete==0.2.1
 
 # Config / validation
 python-dotenv==1.0.1
@@ -45,6 +47,8 @@ aiofiles>=23.2.1
 
 # Utilities
 email-validator==2.2.0
+pyotp==2.9.0
+qrcode[pil]==7.4.2
 
 # NOTE: llama-cpp-python and pywebview are NOT needed for development
 # Install them only when building the production desktop installer:

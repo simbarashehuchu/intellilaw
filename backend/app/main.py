@@ -38,10 +38,10 @@ from app.legal_models import (
     TrustAccount, TrustTransaction, Disbursement,
     ResearchSession, LegalPrecedent, Conflict,
     ConflictStatus, ConflictRiskLevel,
-    ChartOfAccounts, JournalEntry, JournalEntryLine
+    ChartOfAccounts, JournalEntry, JournalEntryLine, MatterAccess
 )
 from app.auth import (
-    get_current_active_user, require_admin, get_password_hash,
+    get_current_active_user, require_admin, require_matter_access, get_password_hash,
     authenticate_user, create_access_token, ACCESS_TOKEN_EXPIRE_MINUTES,
     encrypt_secret, decrypt_secret, create_temporary_mfa_token, decode_temporary_mfa_token
 )
@@ -754,6 +754,17 @@ def list_matters(
     current_user: User = Depends(get_current_active_user)
 ):
     q = db.query(Matter)
+
+    # Access control: non-admins see only matters they have access to
+    if not current_user.is_admin:
+        q = q.filter(or_(
+            Matter.responsible_attorney_id == current_user.id,
+            Matter.access_grants.any(and_(
+                MatterAccess.user_id == current_user.id,
+                or_(MatterAccess.expires_at.is_(None), MatterAccess.expires_at > datetime.utcnow())
+            ))
+        ))
+
     if search:
         q = q.filter(or_(
             Matter.title.ilike(f"%{search}%"),
@@ -803,8 +814,9 @@ def create_matter(req: MatterCreate, db: Session = Depends(get_db),
 
 
 @app.get("/api/matters/{matter_id}")
-def get_matter(matter_id: int, db: Session = Depends(get_db),
-               current_user: User = Depends(get_current_active_user)):
+async def get_matter(matter_id: int, db: Session = Depends(get_db),
+                     current_user: User = Depends(get_current_active_user)):
+    await require_matter_access(matter_id, "view", db, current_user)
     matter = db.query(Matter).filter(Matter.id == matter_id).first()
     if not matter:
         raise HTTPException(404, "Matter not found")
@@ -812,9 +824,10 @@ def get_matter(matter_id: int, db: Session = Depends(get_db),
 
 
 @app.put("/api/matters/{matter_id}")
-def update_matter(matter_id: int, req: MatterCreate,
-                  db: Session = Depends(get_db),
-                  current_user: User = Depends(get_current_active_user)):
+async def update_matter(matter_id: int, req: MatterCreate,
+                        db: Session = Depends(get_db),
+                        current_user: User = Depends(get_current_active_user)):
+    await require_matter_access(matter_id, "edit", db, current_user)
     matter = db.query(Matter).filter(Matter.id == matter_id).first()
     if not matter:
         raise HTTPException(404, "Matter not found")
@@ -1001,17 +1014,19 @@ def decline_conflict(conflict_id: int, req: ConflictDeclineRequest,
 # ─────────────────────────────────────────────────────────────
 
 @app.get("/api/matters/{matter_id}/notes")
-def get_notes(matter_id: int, db: Session = Depends(get_db),
-              current_user: User = Depends(get_current_active_user)):
+async def get_notes(matter_id: int, db: Session = Depends(get_db),
+                    current_user: User = Depends(get_current_active_user)):
+    await require_matter_access(matter_id, "view", db, current_user)
     notes = db.query(MatterNote).filter(MatterNote.matter_id == matter_id).order_by(
         desc(MatterNote.created_at)).all()
     return [_note_out(n, db) for n in notes]
 
 
 @app.post("/api/matters/{matter_id}/notes", status_code=201)
-def add_note(matter_id: int, req: MatterNoteCreate,
-             db: Session = Depends(get_db),
-             current_user: User = Depends(get_current_active_user)):
+async def add_note(matter_id: int, req: MatterNoteCreate,
+                   db: Session = Depends(get_db),
+                   current_user: User = Depends(get_current_active_user)):
+    await require_matter_access(matter_id, "edit", db, current_user)
     note = MatterNote(matter_id=matter_id, author_id=current_user.id, **req.dict())
     db.add(note)
     db.commit()
@@ -1035,17 +1050,19 @@ def _note_out(n: MatterNote, db: Session) -> dict:
 # ─────────────────────────────────────────────────────────────
 
 @app.get("/api/matters/{matter_id}/hearings")
-def get_hearings(matter_id: int, db: Session = Depends(get_db),
-                 current_user: User = Depends(get_current_active_user)):
+async def get_hearings(matter_id: int, db: Session = Depends(get_db),
+                       current_user: User = Depends(get_current_active_user)):
+    await require_matter_access(matter_id, "view", db, current_user)
     hearings = db.query(Hearing).filter(Hearing.matter_id == matter_id).order_by(
         Hearing.date).all()
     return [_hearing_out(h) for h in hearings]
 
 
 @app.post("/api/matters/{matter_id}/hearings", status_code=201)
-def add_hearing(matter_id: int, req: HearingCreate,
-                db: Session = Depends(get_db),
-                current_user: User = Depends(get_current_active_user)):
+async def add_hearing(matter_id: int, req: HearingCreate,
+                      db: Session = Depends(get_db),
+                      current_user: User = Depends(get_current_active_user)):
+    await require_matter_access(matter_id, "edit", db, current_user)
     h = Hearing(
         matter_id=matter_id, created_by=current_user.id,
         **{k: v for k, v in req.dict().items() if k != "date"},
