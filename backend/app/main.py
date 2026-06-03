@@ -30,7 +30,8 @@ from app.legal_models import (
     Client, Matter, MatterNote, Hearing, Task, LegalDocument,
     TimeEntry, Invoice, InvoiceLineItem, Payment,
     TrustAccount, TrustTransaction, Disbursement,
-    ResearchSession, LegalPrecedent
+    ResearchSession, LegalPrecedent, Conflict,
+    ConflictStatus, ConflictRiskLevel
 )
 from app.auth import (
     get_current_active_user, require_admin, get_password_hash,
@@ -41,6 +42,7 @@ from app.legal_prompts import (
     get_legal_prompt, build_draft_contract_prompt,
     build_draft_letter_prompt, build_summarize_prompt, build_research_prompt
 )
+from app.conflict_service import search_potential_conflicts
 
 logger = logging.getLogger(__name__)
 
@@ -237,6 +239,24 @@ class DisbursementCreate(BaseModel):
     disbursement_type: Optional[str] = None
     receipt_ref: Optional[str] = None
     is_billable: bool = True
+
+class ConflictCheckRequest(BaseModel):
+    client_id: int
+    opposing_party_name: Optional[str] = None
+    opposing_counsel_name: Optional[str] = None
+
+class ConflictRaiseRequest(BaseModel):
+    client_id: int
+    opposing_name: str
+    opposing_counsel_name: Optional[str] = None
+    reason: str
+    risk_level: str = "medium"
+
+class ConflictClearRequest(BaseModel):
+    notes: Optional[str] = None
+
+class ConflictDeclineRequest(BaseModel):
+    notes: Optional[str] = None
 
 class AIRequest(BaseModel):
     task_type: str
@@ -590,6 +610,19 @@ def list_matters(
 @app.post("/api/matters", status_code=201)
 def create_matter(req: MatterCreate, db: Session = Depends(get_db),
                   current_user: User = Depends(get_current_active_user)):
+    # Check for uncleared conflicts
+    uncleared = db.query(Conflict).filter(
+        (Conflict.client_id == req.client_id) &
+        (Conflict.status.in_(["raised", "under_review"]))
+    ).all()
+
+    if uncleared:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot create matter: {len(uncleared)} uncleared conflict(s) exist. "
+                   f"Resolve in Conflict Check module."
+        )
+
     num = _next_number(db, "MTR", Matter, "matter_number")
     matter = Matter(
         **req.dict(),
@@ -657,6 +690,146 @@ def _matter_out(m: Matter, db: Session, detailed: bool = False) -> dict:
         d["retainer_amount"] = m.retainer_amount
         d["fixed_fee"] = m.fixed_fee
     return d
+
+
+# ─────────────────────────────────────────────────────────────
+# CONFLICTS
+# ─────────────────────────────────────────────────────────────
+
+@app.post("/api/conflicts/check", status_code=200)
+def check_conflicts(req: ConflictCheckRequest,
+                   db: Session = Depends(get_db),
+                   current_user: User = Depends(get_current_active_user)):
+    """Search for potential conflicts before matter creation"""
+    result = search_potential_conflicts(
+        db,
+        client_id=req.client_id,
+        opposing_party_name=req.opposing_party_name or "",
+        opposing_counsel_name=req.opposing_counsel_name or ""
+    )
+    return result
+
+
+@app.get("/api/conflicts")
+def list_conflicts(
+    status: Optional[str] = None,
+    client_id: Optional[int] = None,
+    skip: int = 0, limit: int = 50,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """List conflicts with optional filters"""
+    q = db.query(Conflict)
+    if status:
+        q = q.filter(Conflict.status == status)
+    if client_id:
+        q = q.filter(Conflict.client_id == client_id)
+    total = q.count()
+    conflicts = q.order_by(desc(Conflict.raised_at)).offset(skip).limit(limit).all()
+
+    items = []
+    for c in conflicts:
+        items.append({
+            "id": c.id,
+            "status": c.status,
+            "client_id": c.client_id,
+            "opposing_name": c.opposing_name,
+            "opposing_counsel_name": c.opposing_counsel_name,
+            "risk_level": c.risk_level,
+            "reason": c.reason,
+            "matter_id": c.matter_id,
+            "raised_by_id": c.raised_by_id,
+            "raised_at": c.raised_at.isoformat() if c.raised_at else None,
+            "reviewed_by_id": c.reviewed_by_id,
+            "reviewed_at": c.reviewed_at.isoformat() if c.reviewed_at else None,
+            "notes": c.notes,
+            "created_at": c.created_at.isoformat() if c.created_at else None,
+        })
+    return {"total": total, "items": items}
+
+
+@app.post("/api/conflicts", status_code=201)
+def raise_conflict(req: ConflictRaiseRequest,
+                   db: Session = Depends(get_db),
+                   current_user: User = Depends(get_current_active_user)):
+    """Raise a new conflict of interest"""
+    conflict = Conflict(
+        client_id=req.client_id,
+        opposing_name=req.opposing_name,
+        opposing_counsel_name=req.opposing_counsel_name,
+        reason=req.reason,
+        risk_level=req.risk_level,
+        status="raised",
+        raised_by_id=current_user.id,
+    )
+    db.add(conflict)
+    db.commit()
+    db.refresh(conflict)
+    _log_activity(db, current_user.id, "raise_conflict",
+                  f"Raised conflict: {req.opposing_name}", "conflict", conflict.id)
+    return {
+        "id": conflict.id,
+        "status": conflict.status,
+        "client_id": conflict.client_id,
+        "opposing_name": conflict.opposing_name,
+        "opposing_counsel_name": conflict.opposing_counsel_name,
+        "risk_level": conflict.risk_level,
+        "reason": conflict.reason,
+        "raised_by_id": conflict.raised_by_id,
+        "raised_at": conflict.raised_at.isoformat() if conflict.raised_at else None,
+    }
+
+
+@app.put("/api/conflicts/{conflict_id}/clear")
+def clear_conflict(conflict_id: int, req: ConflictClearRequest,
+                   db: Session = Depends(get_db),
+                   current_user: User = Depends(get_current_active_user)):
+    """Clear a conflict (attorney/admin only)"""
+    conflict = db.query(Conflict).filter(Conflict.id == conflict_id).first()
+    if not conflict:
+        raise HTTPException(404, "Conflict not found")
+
+    conflict.status = "cleared"
+    conflict.reviewed_by_id = current_user.id
+    conflict.reviewed_at = datetime.utcnow()
+    conflict.notes = req.notes
+    db.commit()
+    db.refresh(conflict)
+    _log_activity(db, current_user.id, "clear_conflict",
+                  f"Cleared conflict: {conflict.opposing_name}", "conflict", conflict.id)
+    return {
+        "id": conflict.id,
+        "status": conflict.status,
+        "reviewed_by_id": conflict.reviewed_by_id,
+        "reviewed_at": conflict.reviewed_at.isoformat() if conflict.reviewed_at else None,
+        "notes": conflict.notes,
+    }
+
+
+@app.put("/api/conflicts/{conflict_id}/decline")
+def decline_conflict(conflict_id: int, req: ConflictDeclineRequest,
+                    db: Session = Depends(get_db),
+                    current_user: User = Depends(get_current_active_user)):
+    """Decline a conflict (attorney/admin only)"""
+    conflict = db.query(Conflict).filter(Conflict.id == conflict_id).first()
+    if not conflict:
+        raise HTTPException(404, "Conflict not found")
+
+    conflict.status = "declined"
+    conflict.reviewed_by_id = current_user.id
+    conflict.reviewed_at = datetime.utcnow()
+    conflict.notes = req.notes
+    db.commit()
+    db.refresh(conflict)
+    _log_activity(db, current_user.id, "decline_conflict",
+                  f"Declined conflict: {conflict.opposing_name}", "conflict", conflict.id)
+    return {
+        "id": conflict.id,
+        "status": conflict.status,
+        "reviewed_by_id": conflict.reviewed_by_id,
+        "reviewed_at": conflict.reviewed_at.isoformat() if conflict.reviewed_at else None,
+        "notes": conflict.notes,
+    }
 
 
 # ─────────────────────────────────────────────────────────────

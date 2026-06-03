@@ -69,6 +69,18 @@ class TrustTransactionType(str, enum.Enum):
     TRANSFER    = "transfer"
     REFUND      = "refund"
 
+class ConflictStatus(str, enum.Enum):
+    RAISED       = "raised"
+    UNDER_REVIEW = "under_review"
+    CLEARED      = "cleared"
+    DECLINED     = "declined"
+
+class ConflictRiskLevel(str, enum.Enum):
+    LOW          = "low"
+    MEDIUM       = "medium"
+    HIGH         = "high"
+    CLEAR        = "clear"
+
 
 # ══════════════════════════════════════════════════════
 # CLIENTS
@@ -122,6 +134,7 @@ class Client(Base):
     invoices        = relationship("Invoice",  back_populates="client")
     trust_accounts  = relationship("TrustAccount", back_populates="client")
     documents       = relationship("LegalDocument", back_populates="client")
+    conflicts       = relationship("Conflict", back_populates="client", cascade="all, delete-orphan")
 
     __table_args__ = (
         Index("ix_clients_name", "last_name", "first_name"),
@@ -476,6 +489,52 @@ class TrustTransaction(Base):
     created_at      = Column(DateTime, default=datetime.utcnow)
 
     account = relationship("TrustAccount", back_populates="transactions")
+
+
+# ══════════════════════════════════════════════════════
+# CONFLICT CHECKING
+# ══════════════════════════════════════════════════════
+
+class Conflict(Base):
+    """Conflict of interest tracking and clearance workflow"""
+    __tablename__ = "conflicts"
+
+    id                       = Column(Integer, primary_key=True, index=True)
+    status                   = Column(String(20), default="raised")  # raised | under_review | cleared | declined
+
+    # Parties
+    client_id                = Column(Integer, ForeignKey("clients.id"), nullable=False, index=True)
+    opposing_name            = Column(String(300), nullable=False)
+    opposing_counsel_name    = Column(String(200), nullable=True)
+
+    # Linkage
+    matter_id                = Column(Integer, ForeignKey("matters.id"), nullable=True, index=True)
+
+    # Assessment
+    risk_level               = Column(String(20), default="medium")  # low | medium | high | clear
+    reason                   = Column(Text, nullable=False)
+
+    # Workflow tracking
+    raised_by_id             = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    raised_at                = Column(DateTime, default=datetime.utcnow)
+
+    reviewed_by_id           = Column(Integer, ForeignKey("users.id"), nullable=True)
+    reviewed_at              = Column(DateTime, nullable=True)
+    notes                    = Column(Text)  # Attorney's clearance/decline notes
+
+    created_at               = Column(DateTime, default=datetime.utcnow)
+    updated_at               = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    client                   = relationship("Client", foreign_keys=[client_id])
+    matter                   = relationship("Matter", foreign_keys=[matter_id])
+    raised_by                = relationship("User", foreign_keys=[raised_by_id])
+    reviewed_by              = relationship("User", foreign_keys=[reviewed_by_id])
+
+    __table_args__ = (
+        Index("ix_conflicts_client_status", "client_id", "status"),
+        Index("ix_conflicts_raised_at", "raised_at"),
+    )
 
 
 # ══════════════════════════════════════════════════════

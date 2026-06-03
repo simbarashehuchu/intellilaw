@@ -618,10 +618,12 @@ function Matters() {
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [showForm, setShowForm] = useState(false)
+  const [showConflictCheck, setShowConflictCheck] = useState(false)
   const [clients, setClients] = useState([])
   const [form, setForm] = useState({ billing_type:'hourly', matter_type:'litigation' })
   const [loading, setLoading] = useState(false)
   const [selected, setSelected] = useState(null)
+  const [selectedClientForConflict, setSelectedClientForConflict] = useState(null)
 
   const load = useCallback(async () => {
     const { data } = await API.get('/matters', { params:{ search, status:statusFilter, limit:50 } })
@@ -633,7 +635,19 @@ function Matters() {
 
   const openForm = async () => {
     const { data } = await API.get('/clients', { params:{ limit:200 } })
-    setClients(data.items||[]); setShowForm(true)
+    setClients(data.items||[])
+    // Show conflict check modal first
+    // We'll let user pick client there
+    setShowConflictCheck(true)
+  }
+
+  const handleConflictCheckComplete = (clientIdFromCheck) => {
+    setShowConflictCheck(false)
+    setShowForm(true)
+    // Pre-populate client_id from conflict check
+    if (clientIdFromCheck) {
+      setForm(f => ({ ...f, client_id: clientIdFromCheck }))
+    }
   }
 
   const save = async e => {
@@ -693,6 +707,13 @@ function Matters() {
         </Table>
         {matters.length===0 && <Empty msg="No matters found." />}
       </Card>
+
+      {showConflictCheck && (
+        <ConflictCheckModal
+          onClose={() => setShowConflictCheck(false)}
+          onProceed={handleConflictCheckComplete}
+        />
+      )}
 
       {showForm && (
         <Modal title="Open New Matter" onClose={() => setShowForm(false)} width={620}>
@@ -2682,6 +2703,234 @@ const globalStyle = `
 `
 
 // ─── VIEW MAP ─────────────────────────────────────────────────────────────────
+
+// ─── CONFLICT CHECK MODAL ─────────────────────────────────────────────────────
+function ConflictCheckModal({ onClose, onProceed }) {
+  const [step, setStep] = useState(1)  // 1: select client & search | 2: results | 3: done
+  const [clients, setClients] = useState([])
+  const [clientId, setClientId] = useState('')
+  const [opposingParty, setOpposingParty] = useState('')
+  const [opposingCounsel, setOpposingCounsel] = useState('')
+  const [potentialConflicts, setPotentialConflicts] = useState([])
+  const [existingUncleared, setExistingUncleared] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [raisedConflicts, setRaisedConflicts] = useState([])
+  const [selectedForRaising, setSelectedForRaising] = useState({})
+
+  useEffect(() => {
+    API.get('/clients', { params: { limit: 200 } })
+      .then(r => setClients(r.data.items || []))
+  }, [])
+
+  const search = async () => {
+    if (!clientId) {
+      toast.error('Select a client')
+      return
+    }
+    if (!opposingParty && !opposingCounsel) {
+      toast.error('Enter opposing party or counsel name')
+      return
+    }
+    setLoading(true)
+    try {
+      const { data } = await API.post('/conflicts/check', {
+        client_id: parseInt(clientId),
+        opposing_party_name: opposingParty,
+        opposing_counsel_name: opposingCounsel,
+      })
+      setPotentialConflicts(data.potential_conflicts || [])
+      setExistingUncleared(data.existing_uncleared || [])
+      setStep(2)
+    } catch(err) {
+      toast.error(err.response?.data?.detail || 'Error checking conflicts')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const toggleForRaising = idx => {
+    setSelectedForRaising(m => ({
+      ...m,
+      [idx]: !m[idx]
+    }))
+  }
+
+  const raiseSelectedConflicts = async () => {
+    const toRaise = potentialConflicts.filter((_, i) => selectedForRaising[i])
+    if (toRaise.length === 0) {
+      toast.warning('Select at least one conflict to raise or proceed without raising')
+      return
+    }
+    setLoading(true)
+    try {
+      for (const conflict of toRaise) {
+        await API.post('/conflicts', {
+          client_id: parseInt(clientId),
+          opposing_name: conflict.name,
+          opposing_counsel_name: opposingCounsel || null,
+          reason: `Detected from matter: ${opposingParty}`,
+          risk_level: 'medium',
+        })
+      }
+      toast.success(`${toRaise.length} conflict(s) raised`)
+      setRaisedConflicts(prev => [...prev, ...toRaise])
+      setStep(3)
+    } catch(err) {
+      toast.error(err.response?.data?.detail || 'Error raising conflicts')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const proceedWithoutRaising = () => {
+    if (existingUncleared.length > 0) {
+      toast.error(`Cannot proceed: ${existingUncleared.length} existing uncleared conflicts`)
+      return
+    }
+    setStep(3)
+  }
+
+  const finish = () => {
+    // Pass client_id back to Matters via onProceed
+    onProceed(parseInt(clientId))
+  }
+
+  const stepBarStyle = active => ({
+    flex: 1, height: 4, borderRadius: 2,
+    background: active ? C.gold : C.border,
+    transition: 'background 0.3s',
+  })
+
+  return (
+    <Modal title="Conflict Check" onClose={onClose} width={700}>
+      {/* Progress */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+        {[1, 2, 3].map(s => <div key={s} style={stepBarStyle(s <= step)} />)}
+      </div>
+      <div style={{ display: 'flex', gap: 16, marginBottom: 24 }}>
+        {['Select & Search', 'Review', 'Done'].map((label, i) => (
+          <span key={i} style={{
+            fontSize: 11, color: step === i + 1 ? C.gold : C.muted,
+            fontWeight: step === i + 1 ? 600 : 400
+          }}>
+            {i + 1}. {label}
+          </span>
+        ))}
+      </div>
+
+      {/* Step 1: Select Client & Search */}
+      {step === 1 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <FormField label="Client">
+            <select style={sS} value={clientId}
+              onChange={e => setClientId(e.target.value)}>
+              <option value="">Select client…</option>
+              {clients.map(c => <option key={c.id} value={c.id}>
+                {c.display_name} ({c.client_number})
+              </option>)}
+            </select>
+          </FormField>
+          <FormField label="Opposing Party Name">
+            <input style={iS} value={opposingParty}
+              onChange={e => setOpposingParty(e.target.value)}
+              placeholder="Enter opposing party name" />
+          </FormField>
+          <FormField label="Opposing Counsel (optional)">
+            <input style={iS} value={opposingCounsel}
+              onChange={e => setOpposingCounsel(e.target.value)}
+              placeholder="Enter opposing counsel name" />
+          </FormField>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <Btn onClick={onClose} variant="secondary">Cancel</Btn>
+            <Btn onClick={search} loading={loading} style={{ flex: 1 }}>Search for Conflicts</Btn>
+          </div>
+        </div>
+      )}
+
+      {/* Step 2: Review Results */}
+      {step === 2 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {existingUncleared.length > 0 && (
+            <Card style={{ background: 'rgba(248,113,113,0.1)', border: `1px solid rgba(248,113,113,0.3)` }}>
+              <p style={{ color: '#f87171', fontSize: 13, margin: '0 0 8px' }}>⚠️ Existing Uncleared Conflicts</p>
+              {existingUncleared.map(c => (
+                <div key={c.id} style={{ color: C.text3, fontSize: 12, marginBottom: 6 }}>
+                  <span style={{ fontWeight: 600 }}>{c.opposing_name}</span>
+                  <span style={{ color: C.muted }}> — {c.status}</span>
+                </div>
+              ))}
+            </Card>
+          )}
+
+          {potentialConflicts.length > 0 ? (
+            <div>
+              <p style={{ color: C.text2, fontSize: 13, marginBottom: 10 }}>Potential Conflicts Found:</p>
+              {potentialConflicts.map((conflict, idx) => (
+                <div key={idx} style={{
+                  display: 'flex', gap: 12, padding: 10, border: `1px solid ${C.border}`,
+                  borderRadius: 6, marginBottom: 8, alignItems: 'flex-start'
+                }}>
+                  <input type="checkbox" checked={selectedForRaising[idx] || false}
+                    onChange={() => toggleForRaising(idx)} style={{ marginTop: 2 }} />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ color: C.text, fontSize: 13, fontWeight: 600 }}>
+                      {conflict.name}
+                      <span style={{ color: C.gold, marginLeft: 8, fontSize: 12 }}>
+                        {Math.round(conflict.similarity * 100)}% match
+                      </span>
+                    </div>
+                    <div style={{ color: C.text3, fontSize: 11, marginTop: 2 }}>
+                      {conflict.type === 'client_match' && 'Found as existing client'}
+                      {conflict.type === 'opposing_counsel_match' && 'Found as opposing counsel in other matters'}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p style={{ color: C.text3, fontSize: 13 }}>No potential conflicts found.</p>
+          )}
+
+          <div style={{ display: 'flex', gap: 10 }}>
+            <Btn onClick={() => setStep(1)} variant="secondary">Back</Btn>
+            {potentialConflicts.length > 0 && (
+              <Btn onClick={raiseSelectedConflicts} loading={loading} style={{ flex: 1 }}>
+                Raise Selected
+              </Btn>
+            )}
+            <Btn onClick={proceedWithoutRaising} variant="success" style={{ flex: 1 }}>
+              Proceed
+            </Btn>
+          </div>
+        </div>
+      )}
+
+      {/* Step 3: Done */}
+      {step === 3 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <Card style={{ background: 'rgba(52,211,153,0.1)', border: `1px solid rgba(52,211,153,0.3)` }}>
+            <p style={{ color: '#34d399', fontSize: 13, margin: 0 }}>✓ Ready to create matter</p>
+          </Card>
+          {raisedConflicts.length > 0 && (
+            <div>
+              <p style={{ color: C.text2, fontSize: 13, marginBottom: 8 }}>Raised Conflicts:</p>
+              {raisedConflicts.map((c, i) => (
+                <div key={i} style={{ color: C.text3, fontSize: 12, paddingLeft: 16, marginBottom: 4 }}>
+                  • {c.name}
+                </div>
+              ))}
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: 10 }}>
+            <Btn onClick={onClose} variant="secondary" style={{ flex: 1 }}>Cancel</Btn>
+            <Btn onClick={finish} style={{ flex: 1 }}>Create Matter</Btn>
+          </div>
+        </div>
+      )}
+    </Modal>
+  )
+}
+
 const VIEWS = {
   dashboard: Dashboard, clients: Clients,   matters: Matters,
   documents: Documents, calendar: Calendar, tasks: Tasks,
