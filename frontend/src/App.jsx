@@ -264,6 +264,7 @@ const NAV = [
   { id:'research',  label:'Research',     icon:'research'  },
   { id:'ai',        label:'AI Assistant', icon:'ai'        },
   { id:'users',     label:'Users',        icon:'users'     },
+  { id:'audit_log', label:'Audit Log',    icon:'activity'  },
   { id:'settings',  label:'Settings',     icon:'settings'  },
 ]
 
@@ -274,14 +275,104 @@ function Login({ onLogin }) {
   const [error, setError] = useState('')
   const [showPw, setShowPw] = useState(false)
 
+  // MFA state
+  const [mfaRequired, setMFARequired] = useState(false)
+  const [tempToken, setTempToken] = useState('')
+  const [mfaCode, setMFACode] = useState('')
+  const [useBa ckupCode, setUseBackupCode] = useState(false)
+
   const submit = async e => {
     e.preventDefault(); setLoading(true); setError('')
     try {
       const { data } = await API.post('/auth/login', form)
+
+      // Check if MFA is required
+      if (data.status === 'mfa_required') {
+        setMFARequired(true)
+        setTempToken(data.temp_token)
+        setMFACode('')
+        setUseBackupCode(false)
+      } else {
+        // Regular login
+        localStorage.setItem('il_token', data.access_token)
+        onLogin(data.user)
+      }
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Invalid username or password')
+    }
+    finally { setLoading(false) }
+  }
+
+  const submitMFA = async e => {
+    e.preventDefault(); setLoading(true); setError('')
+    try {
+      let endpoint, payload
+
+      if (useBackupCode) {
+        endpoint = '/auth/mfa/verify-backup-code'
+        payload = { temp_token: tempToken, backup_code: mfaCode }
+      } else {
+        endpoint = '/auth/mfa/verify-login'
+        payload = { temp_token: tempToken, totp_code: mfaCode }
+      }
+
+      const { data } = await API.post(endpoint, payload)
       localStorage.setItem('il_token', data.access_token)
       onLogin(data.user)
-    } catch { setError('Invalid username or password') }
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Invalid code')
+    }
     finally { setLoading(false) }
+  }
+
+  if (mfaRequired) {
+    return (
+      <div style={{ minHeight:'100vh', background:C.bg, display:'flex',
+        alignItems:'center', justifyContent:'center', fontFamily:'system-ui,sans-serif' }}>
+        <div style={{ width:400 }}>
+          <div style={{ background:C.surface, border:`1px solid ${C.border}`,
+            borderRadius:16, padding:40, boxShadow:'0 25px 60px rgba(0,0,0,0.5)' }}>
+            <h2 style={{ color:C.text, fontSize:20, marginBottom:6, fontWeight:600 }}>Two-Factor Authentication</h2>
+            <p style={{ color:C.muted, fontSize:13, marginBottom:24 }}>
+              Enter the code from your authenticator app or a backup code.
+            </p>
+            <form onSubmit={submitMFA}>
+              <FormField label={useBackupCode ? 'Backup Code' : 'Authenticator Code'} style={{ marginBottom:18 }}>
+                <input style={iS}
+                  placeholder={useBackupCode ? 'e.g. ABC-123' : '000000'}
+                  value={mfaCode}
+                  onChange={e => setMFACode(e.target.value.toUpperCase())}
+                  maxLength={useBackupCode ? 7 : 6}
+                  required autoFocus />
+              </FormField>
+              {error && (
+                <div style={{ color:'#f87171', fontSize:13, marginBottom:16,
+                  background:'rgba(248,113,113,0.1)', padding:'10px 14px', borderRadius:8 }}>
+                  {error}
+                </div>
+              )}
+              <button type="submit" disabled={loading} style={{
+                width:'100%', padding:14,
+                background: loading ? '#2a3650' : `linear-gradient(135deg,${C.gold},${C.goldL})`,
+                border:'none', borderRadius:8, color:'#0a0e1a', fontWeight:700,
+                fontSize:15, cursor:loading?'default':'pointer', fontFamily:'inherit', marginBottom:12 }}>
+                {loading ? 'Verifying…' : 'Verify'}
+              </button>
+              <button type="button" onClick={() => {
+                setUseBackupCode(!useBackupCode)
+                setMFACode('')
+                setError('')
+              }} style={{
+                width:'100%', padding:10,
+                background:'none', border:` 1px solid ${C.border}`, color:C.text3,
+                borderRadius:8, fontSize:13, cursor:'pointer', fontFamily:'inherit' }}>
+                {useBackupCode ? 'Use Authenticator Code' : 'Use Backup Code'}
+              </button>
+            </form>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -2267,6 +2358,10 @@ function Trust() {
   const [accounts, setAccounts] = useState([])
   const [showForm, setShowForm] = useState(false)
   const [clients, setClients] = useState([])
+  const [selectedAccountId, setSelectedAccountId] = useState(null)
+  const [transactions, setTransactions] = useState([])
+  const [txnSummary, setTxnSummary] = useState(null)
+  const [dateRange, setDateRange] = useState({ start: '', end: '' })
   const [form, setForm] = useState({
     transaction_type:'receipt', amount:'',
     date:todayStr(), description:'', reference:'', payment_method:'transfer'
@@ -2275,6 +2370,21 @@ function Trust() {
   const load = () => {
     API.get('/billing/trust').then(r => setAccounts(r.data||[])).catch(() => {})
   }
+
+  const loadLedger = (accountId, startDate='', endDate='') => {
+    const params = new URLSearchParams()
+    if (startDate) params.append('start_date', startDate)
+    if (endDate) params.append('end_date', endDate)
+    params.append('limit', 100)
+
+    API.get(`/billing/trust/${accountId}/transactions`, { params })
+      .then(r => {
+        setTransactions(r.data.transactions || [])
+        setTxnSummary(r.data.summary || {})
+      })
+      .catch(() => { toast.error('Failed to load transactions') })
+  }
+
   useEffect(() => {
     load()
     API.get('/clients', { params:{ limit:200 } }).then(r => setClients(r.data.items||[])).catch(() => {})
@@ -2289,10 +2399,198 @@ function Trust() {
       setForm({ transaction_type:'receipt', amount:'', date:todayStr(),
         description:'', reference:'', payment_method:'transfer' })
       load()
+      if (selectedAccountId) loadLedger(selectedAccountId, dateRange.start, dateRange.end)
     } catch(err) { toast.error(err.response?.data?.detail||'Error') }
   }
 
+  const exportCSV = () => {
+    if (!transactions.length) return
+    const headers = ['Date', 'Type', 'Description', 'Debit', 'Credit', 'Running Balance', 'Reference', 'GL Reference']
+    const rows = transactions.map(t => [
+      t.date,
+      t.type,
+      t.description,
+      t.debit || '',
+      t.credit || '',
+      t.running_balance,
+      t.reference || '',
+      t.gl_reference || ''
+    ])
+    const csv = [headers, ...rows].map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n')
+    const blob = new Blob([csv], { type:'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `trust-ledger-${new Date().toISOString().split('T')[0]}.csv`
+    a.click()
+  }
+
   const total = accounts.reduce((s,a) => s+(a.balance||0), 0)
+
+  if (selectedAccountId) {
+    const account = accounts.find(a => a.id === selectedAccountId)
+    return (
+      <div>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:20 }}>
+          <div>
+            <h2 style={{ color:C.text, fontSize:20, margin:0,
+              fontFamily:'"Crimson Pro",Georgia,serif' }}>{account?.client_name} — Trust Ledger</h2>
+            <p style={{ color:C.muted, fontSize:12, margin:'4px 0 0' }}>
+              Balance: <strong style={{ color:'#34d399' }}>${(account?.balance||0).toLocaleString()}</strong>
+            </p>
+          </div>
+          <div style={{ display:'flex', gap:8 }}>
+            <Btn onClick={exportCSV} icon="download">Export CSV</Btn>
+            <Btn onClick={() => setSelectedAccountId(null)} icon="x">Back</Btn>
+          </div>
+        </div>
+
+        <Card style={{ marginBottom:20 }}>
+          <div style={{ display:'flex', gap:20, alignItems:'flex-end' }}>
+            <FormField label="From" style={{ flex:1 }}>
+              <input type="date" style={iS} value={dateRange.start}
+                onChange={e => {
+                  setDateRange(d => ({ ...d, start:e.target.value }))
+                  loadLedger(selectedAccountId, e.target.value, dateRange.end)
+                }} />
+            </FormField>
+            <FormField label="To" style={{ flex:1 }}>
+              <input type="date" style={iS} value={dateRange.end}
+                onChange={e => {
+                  setDateRange(d => ({ ...d, end:e.target.value }))
+                  loadLedger(selectedAccountId, dateRange.start, e.target.value)
+                }} />
+            </FormField>
+            <Btn onClick={() => {
+              setDateRange({ start:'', end:'' })
+              loadLedger(selectedAccountId, '', '')
+            }}>Clear Filters</Btn>
+          </div>
+        </Card>
+
+        {transactions.length === 0
+          ? <Card><p style={{ color:C.muted }}>No transactions in this period.</p></Card>
+          : <Card>
+              <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13 }}>
+                <thead>
+                  <tr style={{ borderBottom:`1px solid ${C.border}` }}>
+                    <th style={{ padding:12, textAlign:'left', fontWeight:600, color:C.muted }}>Date</th>
+                    <th style={{ padding:12, textAlign:'left', fontWeight:600, color:C.muted }}>Description</th>
+                    <th style={{ padding:12, textAlign:'right', fontWeight:600, color:C.muted }}>Debit</th>
+                    <th style={{ padding:12, textAlign:'right', fontWeight:600, color:C.muted }}>Credit</th>
+                    <th style={{ padding:12, textAlign:'right', fontWeight:600, color:C.muted }}>Balance</th>
+                    <th style={{ padding:12, textAlign:'left', fontWeight:600, color:C.muted }}>GL Reference</th>
+                    <th style={{ padding:12, textAlign:'left', fontWeight:600, color:C.muted }}>Method</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {transactions.map((t, i) => (
+                    <tr key={i} style={{ borderBottom:`1px solid ${C.border}` }}>
+                      <td style={{ padding:12, color:C.text2 }}>{t.date}</td>
+                      <td style={{ padding:12, color:C.text2 }}>
+                        {t.description}
+                        {t.reference && <div style={{ fontSize:11, color:C.muted }}>{t.reference}</div>}
+                      </td>
+                      <td style={{ padding:12, textAlign:'right', color:t.debit ? '#34d399' : C.muted }}>
+                        {t.debit ? `$${t.debit.toFixed(2)}` : '—'}
+                      </td>
+                      <td style={{ padding:12, textAlign:'right', color:t.credit ? '#f87171' : C.muted }}>
+                        {t.credit ? `$${t.credit.toFixed(2)}` : '—'}
+                      </td>
+                      <td style={{ padding:12, textAlign:'right', fontWeight:600, color:C.text2 }}>
+                        ${t.running_balance.toFixed(2)}
+                      </td>
+                      <td style={{ padding:12, color:C.muted, fontSize:11 }}>
+                        {t.gl_reference || '—'}
+                      </td>
+                      <td style={{ padding:12, color:C.muted, fontSize:11 }}>
+                        {t.payment_method || '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div style={{ marginTop:20, paddingTop:20, borderTop:`1px solid ${C.border}`,
+                display:'grid', gridTemplateColumns:'repeat(3, 1fr)', gap:20 }}>
+                <div>
+                  <div style={{ fontSize:11, color:C.muted, textTransform:'uppercase' }}>Total Receipts</div>
+                  <div style={{ fontSize:18, fontWeight:700, color:'#34d399', fontFamily:'"Crimson Pro",Georgia,serif' }}>
+                    ${(txnSummary?.total_receipts||0).toFixed(2)}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize:11, color:C.muted, textTransform:'uppercase' }}>Total Disbursements</div>
+                  <div style={{ fontSize:18, fontWeight:700, color:'#f87171', fontFamily:'"Crimson Pro",Georgia,serif' }}>
+                    ${(txnSummary?.total_disbursements||0).toFixed(2)}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize:11, color:C.muted, textTransform:'uppercase' }}>Net Balance</div>
+                  <div style={{ fontSize:18, fontWeight:700, color:'#60a5fa', fontFamily:'"Crimson Pro",Georgia,serif' }}>
+                    ${(txnSummary?.net_balance||0).toFixed(2)}
+                  </div>
+                </div>
+              </div>
+            </Card>
+        }
+
+        {showForm && (
+          <Modal title="Record Trust Transaction" onClose={() => setShowForm(false)}>
+            <form onSubmit={save} style={{ display:'flex', flexDirection:'column', gap:14 }}>
+              <FormField label="Client">
+                <select style={sS} required value={form.client_id||''}
+                  onChange={e => setForm(f => ({ ...f, client_id:parseInt(e.target.value) }))}>
+                  <option value="">Select client…</option>
+                  {clients.map(c => <option key={c.id} value={c.id}>{c.display_name}</option>)}
+                </select>
+              </FormField>
+              <div style={{ display:'flex', gap:12 }}>
+                <FormField label="Type" style={{ flex:1 }}>
+                  <select style={sS} value={form.transaction_type}
+                    onChange={e => setForm(f => ({ ...f, transaction_type:e.target.value }))}>
+                    {['receipt','disbursement','refund'].map(t =>
+                      <option key={t} value={t}>{t.charAt(0).toUpperCase()+t.slice(1)}</option>)}
+                  </select>
+                </FormField>
+                <FormField label="Amount (USD)" style={{ flex:1 }}>
+                  <input type="number" step="0.01" style={iS} required value={form.amount}
+                    onChange={e => setForm(f => ({ ...f, amount:e.target.value }))} />
+                </FormField>
+                <FormField label="Date" style={{ flex:1 }}>
+                  <input type="date" style={iS} required value={form.date}
+                    onChange={e => setForm(f => ({ ...f, date:e.target.value }))} />
+                </FormField>
+              </div>
+              <FormField label="Description">
+                <input style={iS} required value={form.description}
+                  onChange={e => setForm(f => ({ ...f, description:e.target.value }))}
+                  placeholder="e.g. Receipt of retainer per client letter dated 29 May 2026" />
+              </FormField>
+              <div style={{ display:'flex', gap:12 }}>
+                <FormField label="Payment Method" style={{ flex:1 }}>
+                  <select style={sS} value={form.payment_method}
+                    onChange={e => setForm(f => ({ ...f, payment_method:e.target.value }))}>
+                    {['transfer','cash','cheque','mobile_money','card'].map(m =>
+                      <option key={m} value={m}>{m.replace('_',' ')}</option>)}
+                  </select>
+                </FormField>
+                <FormField label="Bank Reference" style={{ flex:1 }}>
+                  <input style={iS} value={form.reference}
+                    onChange={e => setForm(f => ({ ...f, reference:e.target.value }))} />
+                </FormField>
+              </div>
+              <div style={{ background:'rgba(52,211,153,0.08)', border:'1px solid rgba(52,211,153,0.2)',
+                borderRadius:8, padding:'10px 14px', fontSize:12, color:'#34d399' }}>
+                ⚠ Trust account transactions are subject to Law Society regulations.
+                Ensure proper authority before disbursing.
+              </div>
+              <ModalFooter onCancel={() => setShowForm(false)} label="Record Transaction" />
+            </form>
+          </Modal>
+        )}
+      </div>
+    )
+  }
 
   return (
     <div>
@@ -2311,7 +2609,12 @@ function Trust() {
         ? <Card><p style={{ color:C.muted }}>No trust accounts yet. Record a trust receipt to open one.</p></Card>
         : <div style={{ display:'flex', gap:14, flexWrap:'wrap' }}>
             {accounts.map(a => (
-              <Card key={a.id} style={{ width:240 }}>
+              <Card key={a.id} style={{ width:240, cursor:'pointer' }}
+                onClick={() => {
+                  setSelectedAccountId(a.id)
+                  setDateRange({ start:'', end:'' })
+                  loadLedger(a.id, '', '')
+                }}>
                 <div style={{ color:C.muted, fontSize:11, textTransform:'uppercase',
                   letterSpacing:'0.08em', marginBottom:8 }}>Client Trust Account</div>
                 <div style={{ color:C.text2, fontSize:15, fontWeight:600, marginBottom:6 }}>
@@ -2379,6 +2682,191 @@ function Trust() {
             <ModalFooter onCancel={() => setShowForm(false)} label="Record Transaction" />
           </form>
         </Modal>
+      )}
+    </div>
+  )
+}
+
+// ─── AUDIT LOG ──────────────────────────────────────────────────────────────
+function AuditLog() {
+  const { user: currentUser } = useApp()
+  const [activities, setActivities] = useState([])
+  const [total, setTotal] = useState(0)
+  const [skip, setSkip] = useState(0)
+  const [filters, setFilters] = useState({
+    user_id: '',
+    action: '',
+    resource_type: '',
+    start_date: '',
+    end_date: '',
+  })
+  const [actionOptions, setActionOptions] = useState([])
+  const [userOptions, setUserOptions] = useState([])
+  const [isExporting, setIsExporting] = useState(false)
+
+  const load = useCallback(async () => {
+    const params = new URLSearchParams()
+    params.append('skip', skip)
+    params.append('limit', 50)
+    if (filters.user_id) params.append('user_id', filters.user_id)
+    if (filters.action) params.append('action', filters.action)
+    if (filters.resource_type) params.append('resource_type', filters.resource_type)
+    if (filters.start_date) params.append('start_date', filters.start_date)
+    if (filters.end_date) params.append('end_date', filters.end_date)
+
+    try {
+      const { data } = await API.get('/admin/activity-log', { params })
+      setActivities(data.items || [])
+      setTotal(data.total || 0)
+    } catch (err) {
+      toast.error('Failed to load audit log')
+    }
+  }, [skip, filters])
+
+  const loadActionOptions = useCallback(async () => {
+    try {
+      const { data } = await API.get('/admin/activity-log/actions')
+      setActionOptions(data.actions || [])
+    } catch (err) {
+      logger.warn('Failed to load action options')
+    }
+  }, [])
+
+  const loadUserOptions = useCallback(async () => {
+    try {
+      const { data } = await API.get('/admin/users')
+      setUserOptions(data || [])
+    } catch (err) {
+      logger.warn('Failed to load user options')
+    }
+  }, [])
+
+  useEffect(() => { load() }, [load])
+  useEffect(() => { loadActionOptions() }, [loadActionOptions])
+  useEffect(() => { loadUserOptions() }, [loadUserOptions])
+
+  const handleExport = async () => {
+    setIsExporting(true)
+    try {
+      const params = new URLSearchParams()
+      if (filters.user_id) params.append('user_id', filters.user_id)
+      if (filters.action) params.append('action', filters.action)
+      if (filters.resource_type) params.append('resource_type', filters.resource_type)
+      if (filters.start_date) params.append('start_date', filters.start_date)
+      if (filters.end_date) params.append('end_date', filters.end_date)
+
+      const response = await API.get('/admin/activity-log/export', { params })
+      const blob = new Blob([response.data], { type: 'text/csv' })
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `audit_log_${new Date().toISOString().split('T')[0]}.csv`
+      a.click()
+      window.URL.revokeObjectURL(url)
+      toast.success('Audit log exported')
+    } catch (err) {
+      toast.error('Export failed')
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
+  const handleClearFilters = () => {
+    setFilters({
+      user_id: '',
+      action: '',
+      resource_type: '',
+      start_date: '',
+      end_date: '',
+    })
+    setSkip(0)
+  }
+
+  const tdS = { padding:'10px 14px', color:C.text2, fontSize:13 }
+  const limit = 50
+
+  return (
+    <div>
+      <div style={{ marginBottom:20 }}>
+        <h2 style={{ color:C.text, fontSize:20, margin:0, marginBottom:16,
+          fontFamily:'"Crimson Pro",Georgia,serif' }}>Audit Log</h2>
+        <div style={{ display:'flex', gap:12, marginBottom:16, flexWrap:'wrap',
+          alignItems:'flex-end' }}>
+          <div style={{ flex:1, minWidth:200 }}>
+            <label style={{ color:C.text3, fontSize:12, display:'block', marginBottom:6 }}>User</label>
+            <select style={{ ...iS, width:'100%' }} value={filters.user_id}
+              onChange={e => { setFilters(f => ({ ...f, user_id: e.target.value })); setSkip(0) }}>
+              <option value="">All users</option>
+              {userOptions.map(u => <option key={u.id} value={u.id}>{u.full_name || u.username}</option>)}
+            </select>
+          </div>
+          <div style={{ flex:1, minWidth:200 }}>
+            <label style={{ color:C.text3, fontSize:12, display:'block', marginBottom:6 }}>Action</label>
+            <select style={{ ...iS, width:'100%' }} value={filters.action}
+              onChange={e => { setFilters(f => ({ ...f, action: e.target.value })); setSkip(0) }}>
+              <option value="">All actions</option>
+              {actionOptions.map(a => <option key={a} value={a}>{a}</option>)}
+            </select>
+          </div>
+          <div style={{ flex:1, minWidth:150 }}>
+            <label style={{ color:C.text3, fontSize:12, display:'block', marginBottom:6 }}>From Date</label>
+            <input type="date" style={{ ...iS, width:'100%' }} value={filters.start_date}
+              onChange={e => { setFilters(f => ({ ...f, start_date: e.target.value })); setSkip(0) }} />
+          </div>
+          <div style={{ flex:1, minWidth:150 }}>
+            <label style={{ color:C.text3, fontSize:12, display:'block', marginBottom:6 }}>To Date</label>
+            <input type="date" style={{ ...iS, width:'100%' }} value={filters.end_date}
+              onChange={e => { setFilters(f => ({ ...f, end_date: e.target.value })); setSkip(0) }} />
+          </div>
+        </div>
+        <div style={{ display:'flex', gap:8 }}>
+          <Btn onClick={handleClearFilters}>Clear Filters</Btn>
+          <Btn icon="download" onClick={handleExport} disabled={isExporting}>
+            {isExporting ? 'Exporting...' : 'Export CSV'}
+          </Btn>
+        </div>
+      </div>
+
+      <Card style={{ padding:0 }}>
+        <Table headers={['Timestamp', 'User', 'Action', 'Description', 'Resource']}>
+          {activities.map((a, i) => (
+            <tr key={a.id} style={{ borderBottom:`1px solid ${C.border2}` }}>
+              <td style={tdS}>
+                <span style={{ color:C.muted, fontSize:12 }}>
+                  {new Date(a.timestamp).toLocaleDateString()} {new Date(a.timestamp).toLocaleTimeString()}
+                </span>
+              </td>
+              <td style={tdS}>{a.user?.full_name || a.user?.username}</td>
+              <td style={tdS}>
+                <Badge color="blue">{a.action}</Badge>
+              </td>
+              <td style={tdS}>
+                <span style={{ color:C.text2 }}>{a.description || '-'}</span>
+              </td>
+              <td style={tdS}>
+                {a.resource_type ? <Badge color="gold">{a.resource_type}</Badge> : '-'}
+              </td>
+            </tr>
+          ))}
+        </Table>
+        {activities.length === 0 && <Empty msg="No activities found." />}
+      </Card>
+
+      {activities.length > 0 && (
+        <div style={{ marginTop:16, display:'flex', alignItems:'center', justifyContent:'space-between',
+          color:C.muted, fontSize:13 }}>
+          <span>Showing {skip + 1}-{Math.min(skip + limit, total)} of {total.toLocaleString()}</span>
+          <div style={{ display:'flex', gap:8 }}>
+            <button onClick={() => setSkip(Math.max(0, skip - limit))} disabled={skip === 0}
+              style={{ ...Btn.style, opacity: skip === 0 ? 0.5 : 1, cursor: skip === 0 ? 'default' : 'pointer' }}>
+              Previous
+            </button>
+            <button onClick={() => setSkip(skip + limit)} disabled={skip + limit >= total}
+              style={{ ...Btn.style, opacity: skip + limit >= total ? 0.5 : 1, cursor: skip + limit >= total ? 'default' : 'pointer' }}>
+              Next
+            </button>
+          </div>
+        </div>
       )}
     </div>
   )
@@ -2529,6 +3017,139 @@ function Users() {
   )
 }
 
+// ─── SECURITY SETTINGS ────────────────────────────────────────────────────────
+function SecuritySettings() {
+  const { user } = useApp()
+  const [mfaSetup, setMFASetup] = useState(null)
+  const [mfaCode, setMFACode] = useState('')
+  const [showMFAModal, setShowMFAModal] = useState(false)
+  const [loading, setLoading] = useState(false)
+
+  const handleSetupMFA = async () => {
+    setLoading(true)
+    try {
+      const { data } = await API.post('/auth/mfa/setup')
+      setMFASetup(data)
+      setShowMFAModal(true)
+      setMFACode('')
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to setup MFA')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleVerifyMFA = async () => {
+    if (mfaCode.length !== 6 || !/^\d+$/.test(mfaCode)) {
+      toast.error('Enter a 6-digit code')
+      return
+    }
+    setLoading(true)
+    try {
+      await API.post('/auth/mfa/verify-setup', { totp_code: mfaCode })
+      toast.success('MFA enabled successfully!')
+      setShowMFAModal(false)
+      setMFASetup(null)
+      setMFACode('')
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Invalid code')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleCopyCode = (code) => {
+    navigator.clipboard.writeText(code)
+    toast.success('Copied!')
+  }
+
+  return (
+    <>
+      <Card>
+        <SectionTitle>Multi-Factor Authentication</SectionTitle>
+        <p style={{ color: C.text3, fontSize: 13, marginBottom: 16, lineHeight: 1.6 }}>
+          Protect your account with MFA. You'll need a code from your authenticator app when signing in.
+        </p>
+        <Btn onClick={handleSetupMFA} disabled={loading}>
+          {loading ? 'Setting up...' : 'Enable MFA'}
+        </Btn>
+      </Card>
+
+      {showMFAModal && (
+        <Modal title="Enable Two-Factor Authentication" onClose={() => setShowMFAModal(false)}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+            <div>
+              <h4 style={{ color: C.text2, fontSize: 13, fontWeight: 600, marginBottom: 10 }}>
+                Step 1: Scan QR Code
+              </h4>
+              <p style={{ color: C.text3, fontSize: 12, marginBottom: 12 }}>
+                Use Google Authenticator, Authy, or Microsoft Authenticator to scan:
+              </p>
+              {mfaSetup?.qr_code && (
+                <img src={mfaSetup.qr_code} alt="QR" style={{ maxWidth: 200 }} />
+              )}
+            </div>
+
+            <div>
+              <h4 style={{ color: C.text2, fontSize: 13, fontWeight: 600, marginBottom: 10 }}>
+                Step 2: Enter Code
+              </h4>
+              <input
+                type="text"
+                placeholder="000000"
+                value={mfaCode}
+                onChange={e => setMFACode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                maxLength="6"
+                style={{ ...iS, width: '100px', textAlign: 'center', fontSize: 20, letterSpacing: '4px' }}
+                autoFocus
+              />
+            </div>
+
+            <div>
+              <h4 style={{ color: C.text2, fontSize: 13, fontWeight: 600, marginBottom: 10 }}>
+                Step 3: Save Backup Codes
+              </h4>
+              <p style={{ color: C.text3, fontSize: 12, marginBottom: 10 }}>
+                Store these codes safely. Use if you lose your device:
+              </p>
+              <div style={{ background: C.bg, padding: 10, borderRadius: 6, border: `1px solid ${C.border}`, maxHeight: 150, overflowY: 'auto' }}>
+                {mfaSetup?.backup_codes?.map((code, i) => (
+                  <div
+                    key={i}
+                    onClick={() => handleCopyCode(code)}
+                    style={{
+                      fontSize: 11,
+                      fontFamily: 'monospace',
+                      padding: '4px 6px',
+                      cursor: 'pointer',
+                      color: C.gold,
+                      marginBottom: i < mfaSetup.backup_codes.length - 1 ? 4 : 0,
+                      borderRadius: 3,
+                      background: C.surface,
+                      border: `1px solid ${C.border2}`,
+                    }}
+                  >
+                    {code} <span style={{ color: C.text3, fontSize: 10 }}>← click to copy</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: 10 }}>
+              <Btn onClick={handleVerifyMFA} disabled={loading || mfaCode.length !== 6} style={{ flex: 1 }}>
+                {loading ? 'Enabling...' : 'Enable MFA'}
+              </Btn>
+              <Btn onClick={() => setShowMFAModal(false)} variant="secondary" style={{ flex: 1 }}>
+                Close
+              </Btn>
+            </div>
+          </div>
+        </Modal>
+      )}
+    </>
+  )
+}
+
 // ─── SETTINGS ────────────────────────────────────────────────────────────────
 function Settings() {
   const [settings, setSettings] = useState({})
@@ -2582,6 +3203,7 @@ function Settings() {
         { id:'financial', label:'Financial' },
         { id:'banking',   label:'Bank Accounts' },
         { id:'system',    label:'System' },
+        { id:'security',  label:'Security' },
       ]} active={tab} onChange={setTab} />
 
       <form onSubmit={save}>
@@ -2662,6 +3284,10 @@ function Settings() {
                 Backup functionality available in the Security phase.</div>
             </div>
           </Card>
+        )}
+
+        {tab==='security' && (
+          <SecuritySettings />
         )}
 
         {tab !== 'system' && (
@@ -2935,7 +3561,8 @@ const VIEWS = {
   dashboard: Dashboard, clients: Clients,   matters: Matters,
   documents: Documents, calendar: Calendar, tasks: Tasks,
   billing: Billing,     trust: Trust,       research: Research,
-  ai: AIAssistant,      users: Users,       settings: Settings,
+  ai: AIAssistant,      users: Users,       audit_log: AuditLog,
+  settings: Settings,
 }
 
 // ─── ROOT APP ─────────────────────────────────────────────────────────────────
@@ -2945,15 +3572,60 @@ export default function App() {
   })
   const [activeTab, setActiveTab] = useState('dashboard')
 
+  // Session timeout tracking
+  const [lastActivityTime, setLastActivityTime] = useState(Date.now())
+  const [showTimeoutWarning, setShowTimeoutWarning] = useState(false)
+  const IDLE_TIMEOUT_MS = 15 * 60 * 1000  // 15 minutes
+  const WARNING_THRESHOLD_MS = 2 * 60 * 1000  // 2 minutes
+
   const handleLogin = u => {
     setUser(u)
     localStorage.setItem('il_user', JSON.stringify(u))
+    setLastActivityTime(Date.now())
+    setShowTimeoutWarning(false)
   }
   const handleLogout = () => {
     localStorage.removeItem('il_token')
     localStorage.removeItem('il_user')
     setUser(null)
+    setShowTimeoutWarning(false)
   }
+
+  // Record user activity (mouse, keyboard, click)
+  const recordActivity = useCallback(() => {
+    if (user) {
+      setLastActivityTime(Date.now())
+      setShowTimeoutWarning(false)
+    }
+  }, [user])
+
+  // Listen for user activity events
+  useEffect(() => {
+    if (!user) return
+
+    const events = ['mousedown', 'keydown', 'click', 'touchstart', 'scroll']
+    events.forEach(e => document.addEventListener(e, recordActivity))
+
+    return () => events.forEach(e => document.removeEventListener(e, recordActivity))
+  }, [user, recordActivity])
+
+  // Check for idle timeout every 30 seconds
+  useEffect(() => {
+    if (!user) return
+
+    const interval = setInterval(() => {
+      const timeSinceActivity = Date.now() - lastActivityTime
+      const timeUntilLogout = IDLE_TIMEOUT_MS - timeSinceActivity
+
+      if (timeUntilLogout <= 0) {
+        handleLogout()
+      } else if (timeUntilLogout <= WARNING_THRESHOLD_MS && !showTimeoutWarning) {
+        setShowTimeoutWarning(true)
+      }
+    }, 30000)
+
+    return () => clearInterval(interval)
+  }, [user, lastActivityTime, showTimeoutWarning, IDLE_TIMEOUT_MS, WARNING_THRESHOLD_MS])
 
   useEffect(() => {
     if (user) API.get('/auth/me').catch(() => handleLogout())
@@ -2968,6 +3640,19 @@ export default function App() {
   return (
     <>
       <style>{globalStyle}</style>
+      {showTimeoutWarning && (
+        <Modal title="Session Timeout Warning" onClose={() => {}}>
+          <div style={{ marginBottom: 20 }}>
+            <p style={{ color: C.text2, fontSize: 14, lineHeight: 1.6 }}>
+              Your session will expire in 2 minutes due to inactivity. Click below to continue working.
+            </p>
+          </div>
+          <div style={{ display: 'flex', gap: 12 }}>
+            <Btn onClick={recordActivity} style={{ flex: 1 }}>Continue Working</Btn>
+            <Btn onClick={handleLogout} variant="danger" style={{ flex: 1 }}>Logout Now</Btn>
+          </div>
+        </Modal>
+      )}
       <AppCtx.Provider value={{ user, activeTab, setActiveTab }}>
         <Layout user={user} onLogout={handleLogout}
           activeTab={activeTab} setActiveTab={setActiveTab}>
