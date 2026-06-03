@@ -220,9 +220,41 @@ class Matter(Base):
     time_entries             = relationship("TimeEntry",     back_populates="matter", cascade="all, delete-orphan")
     invoices                 = relationship("Invoice",       back_populates="matter")
     ai_sessions              = relationship("AISession",     back_populates="matter", foreign_keys="AISession.matter_id")
+    access_grants            = relationship("MatterAccess",  back_populates="matter", cascade="all, delete-orphan")
 
     __table_args__ = (
         Index("ix_matters_client_status", "client_id", "status"),
+    )
+
+
+class MatterAccess(Base):
+    """Matter-level access control — explicit grants for users beyond responsible attorney"""
+    __tablename__ = "matter_access"
+
+    id              = Column(Integer, primary_key=True, index=True)
+    matter_id       = Column(Integer, ForeignKey("matters.id", ondelete="CASCADE"),
+                             nullable=False, index=True)
+    user_id         = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"),
+                             nullable=False, index=True)
+    access_level    = Column(String(20), nullable=False, index=True)
+    # Levels: "view" (read-only), "edit" (read+write), "admin" (full control)
+
+    granted_by      = Column(Integer, ForeignKey("users.id"), nullable=False)
+    granted_at      = Column(DateTime, default=datetime.utcnow)
+    notes           = Column(Text)
+    expires_at      = Column(DateTime, nullable=True)  # Time-limited access
+
+    created_at      = Column(DateTime, default=datetime.utcnow)
+    updated_at      = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    matter          = relationship("Matter", foreign_keys=[matter_id])
+    user            = relationship("User", foreign_keys=[user_id])
+    grantor         = relationship("User", foreign_keys=[granted_by])
+
+    __table_args__ = (
+        UniqueConstraint("matter_id", "user_id", name="uq_matter_user_access"),
+        Index("ix_matter_access_user", "user_id"),
+        Index("ix_matter_access_expires", "expires_at"),
     )
 
 

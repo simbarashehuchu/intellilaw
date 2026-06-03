@@ -336,6 +336,55 @@ def _apply_migrations(engine):
         except Exception as e:
             logger.warning(f"Migration skipped (column may already exist): {e}")
 
+        # Migration: Create matter_access table if missing (for access control)
+        try:
+            from sqlalchemy import inspect
+            inspector = inspect(engine)
+
+            if 'matter_access' not in inspector.get_table_names():
+                logger.info("Creating matter_access table...")
+                conn.execute(text("""
+                    CREATE TABLE matter_access (
+                        id INTEGER PRIMARY KEY,
+                        matter_id INTEGER NOT NULL,
+                        user_id INTEGER NOT NULL,
+                        access_level TEXT NOT NULL,
+                        granted_by INTEGER NOT NULL,
+                        granted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        notes TEXT,
+                        expires_at TIMESTAMP,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (matter_id) REFERENCES matters(id) ON DELETE CASCADE,
+                        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                        FOREIGN KEY (granted_by) REFERENCES users(id),
+                        UNIQUE (matter_id, user_id)
+                    )
+                """))
+                conn.execute(text("""CREATE INDEX ix_matter_access_user ON matter_access(user_id)"""))
+                conn.execute(text("""CREATE INDEX ix_matter_access_expires ON matter_access(expires_at)"""))
+                conn.commit()
+                logger.info("MatterAccess table created")
+
+                # Populate existing responsible attorneys as "edit" access grants
+                logger.info("Granting existing responsible attorneys access...")
+                admin_id = 1  # Default admin from init_db
+                try:
+                    conn.execute(text("""
+                        INSERT OR IGNORE INTO matter_access
+                        (matter_id, user_id, access_level, granted_by, granted_at, notes)
+                        SELECT DISTINCT m.id, m.responsible_attorney_id, 'edit', :admin_id, CURRENT_TIMESTAMP,
+                               'Implicit access as responsible attorney'
+                        FROM matters m
+                        WHERE m.responsible_attorney_id IS NOT NULL
+                    """), {"admin_id": admin_id})
+                    conn.commit()
+                    logger.info("Responsible attorney access grants created")
+                except Exception as inner_e:
+                    logger.warning(f"Could not auto-grant responsible attorney access: {inner_e}")
+        except Exception as e:
+            logger.warning(f"MatterAccess migration skipped: {e}")
+
 
 def _seed_chart_of_accounts(engine):
     """Seed pre-defined GL accounts for Law Society compliance."""
