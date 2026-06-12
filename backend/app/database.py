@@ -8,7 +8,7 @@ import secrets
 from pathlib import Path
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
+from sqlalchemy.pool import NullPool
 from dotenv import load_dotenv
 from app.models import Base
 
@@ -236,7 +236,7 @@ class EncryptedSQLiteConnection:
         """Return encrypted sqlcipher3 connection with key and optimizations."""
         import sqlcipher3
 
-        conn = sqlcipher3.connect(str(self.db_path))
+        conn = sqlcipher3.connect(str(self.db_path), check_same_thread=False)
         conn.execute(f"PRAGMA key = 'x\"{self.encryption_key}\"'")
         conn.execute("PRAGMA journal_mode = WAL")
         conn.execute("PRAGMA synchronous = NORMAL")
@@ -264,11 +264,12 @@ def get_engine():
             raise
 
         # Create engine with encrypted connection
+        # NullPool: creates a new connection per request (required for sqlcipher3
+        # which cannot share connections across threads like StaticPool does)
         _engine = create_engine(
             "sqlite:///ignored",  # URL ignored, using creator function
             creator=EncryptedSQLiteConnection(db_path, encryption_key),
-            connect_args={"check_same_thread": False},
-            poolclass=StaticPool,
+            poolclass=NullPool,
             echo=False,
         )
     return _engine
@@ -336,6 +337,27 @@ def _apply_migrations(engine):
         except Exception as e:
             logger.warning(f"Migration skipped (column may already exist): {e}")
 
+        # Migration: Add billing_units to time_entries if missing
+        try:
+            inspector = inspect(engine)
+            columns = {col['name'] for col in inspector.get_columns('time_entries')}
+            if 'billing_units' not in columns:
+                logger.info("Migrating time_entries: adding billing_units column...")
+                conn.execute(text("""
+                    ALTER TABLE time_entries
+                    ADD COLUMN billing_units INTEGER
+                """))
+                # Backfill existing rows: billing_units = ceil(hours * 10)
+                conn.execute(text("""
+                    UPDATE time_entries
+                    SET billing_units = CAST(CEIL(hours * 10) AS INTEGER)
+                    WHERE billing_units IS NULL
+                """))
+                conn.commit()
+                logger.info("Migration applied: billing_units added to time_entries")
+        except Exception as e:
+            logger.warning(f"billing_units migration skipped: {e}")
+
         # Migration: Create matter_access table if missing (for access control)
         try:
             from sqlalchemy import inspect
@@ -384,6 +406,28 @@ def _apply_migrations(engine):
                     logger.warning(f"Could not auto-grant responsible attorney access: {inner_e}")
         except Exception as e:
             logger.warning(f"MatterAccess migration skipped: {e}")
+
+        # Migration: Add KYC onboarding columns to clients if missing
+        try:
+            inspector = inspect(engine)
+            columns = {col['name'] for col in inspector.get_columns('clients')}
+            kyc_migrations = [
+                ("kyc_status",            "ALTER TABLE clients ADD COLUMN kyc_status TEXT DEFAULT 'pending'"),
+                ("kyc_verified_at",       "ALTER TABLE clients ADD COLUMN kyc_verified_at TIMESTAMP"),
+                ("kyc_verified_by",       "ALTER TABLE clients ADD COLUMN kyc_verified_by INTEGER REFERENCES users(id)"),
+                ("onboarding_checklist",  "ALTER TABLE clients ADD COLUMN onboarding_checklist TEXT"),
+                ("engagement_letter_sent","ALTER TABLE clients ADD COLUMN engagement_letter_sent INTEGER DEFAULT 0"),
+                ("source_of_funds",       "ALTER TABLE clients ADD COLUMN source_of_funds TEXT"),
+                ("beneficial_owner",      "ALTER TABLE clients ADD COLUMN beneficial_owner TEXT"),
+            ]
+            for col_name, sql in kyc_migrations:
+                if col_name not in columns:
+                    logger.info(f"Migrating clients: adding {col_name}...")
+                    conn.execute(text(sql))
+            conn.commit()
+            logger.info("KYC onboarding columns migration complete")
+        except Exception as e:
+            logger.warning(f"KYC columns migration skipped: {e}")
 
 
 def _seed_chart_of_accounts(engine):

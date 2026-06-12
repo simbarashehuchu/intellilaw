@@ -27,7 +27,7 @@ from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
-from sqlalchemy import func, desc, or_
+from sqlalchemy import func, desc, or_, and_
 from pydantic import BaseModel, EmailStr
 
 from app.database import get_db, init_db, get_engine, get_database_info
@@ -174,11 +174,25 @@ class ClientCreate(BaseModel):
     email: Optional[str] = None
     phone: Optional[str] = None
     id_number: Optional[str] = None
+    registration_no: Optional[str] = None
+    contact_person: Optional[str] = None
     address_line1: Optional[str] = None
+    address_line2: Optional[str] = None
     city: Optional[str] = None
     country: str = "Zimbabwe"
+    risk_rating: str = "standard"
     notes: Optional[str] = None
     tags: Optional[str] = None
+
+class KYCUpdateRequest(BaseModel):
+    kyc_status: Optional[str] = None
+    source_of_funds: Optional[str] = None
+    beneficial_owner: Optional[str] = None
+    engagement_letter_sent: Optional[bool] = None
+    notes: Optional[str] = None
+
+class ChecklistUpdateRequest(BaseModel):
+    checklist: dict  # {item_id: {done: bool, notes: str}}
 
 class MatterCreate(BaseModel):
     title: str
@@ -226,6 +240,7 @@ class TimeEntryCreate(BaseModel):
     description: str
     activity_code: Optional[str] = None
     is_billable: bool = True
+    snap_to_units: bool = True   # if True, round up to nearest 6-minute unit
 
 class InvoiceCreate(BaseModel):
     client_id: int
@@ -716,6 +731,10 @@ def update_client(client_id: int, req: ClientCreate,
 
 def _client_out(c: Client, db: Session, detailed: bool = False) -> dict:
     matters_count = db.query(Matter).filter(Matter.client_id == c.id).count()
+    import json
+    checklist_raw = c.onboarding_checklist or '{}'
+    try: checklist = json.loads(checklist_raw)
+    except: checklist = {}
     d = {
         "id": c.id, "client_number": c.client_number,
         "client_type": c.client_type,
@@ -726,6 +745,10 @@ def _client_out(c: Client, db: Session, detailed: bool = False) -> dict:
         "city": c.city, "country": c.country,
         "is_active": c.is_active, "risk_rating": c.risk_rating,
         "kyc_verified": c.kyc_verified,
+        "kyc_status": c.kyc_status or "pending",
+        "kyc_verified_at": c.kyc_verified_at.isoformat() if c.kyc_verified_at else None,
+        "engagement_letter_sent": bool(c.engagement_letter_sent),
+        "onboarding_checklist": checklist,
         "tags": c.tags, "notes": c.notes,
         "matters_count": matters_count,
         "created_at": c.created_at.isoformat() if c.created_at else None,
@@ -736,7 +759,81 @@ def _client_out(c: Client, db: Session, detailed: bool = False) -> dict:
         d["id_number"] = c.id_number
         d["registration_no"] = c.registration_no
         d["contact_person"] = c.contact_person
+        d["source_of_funds"] = c.source_of_funds
+        d["beneficial_owner"] = c.beneficial_owner
     return d
+
+
+# ─────────────────────────────────────────────────────────────
+# KYC / CLIENT ONBOARDING
+# ─────────────────────────────────────────────────────────────
+
+@app.get("/api/clients/{client_id}/kyc")
+def get_client_kyc(client_id: int, db: Session = Depends(get_db),
+                   current_user: User = Depends(get_current_active_user)):
+    client = db.query(Client).filter(Client.id == client_id).first()
+    if not client:
+        raise HTTPException(404, "Client not found")
+    return _client_out(client, db, detailed=True)
+
+
+@app.put("/api/clients/{client_id}/kyc")
+def update_client_kyc(client_id: int, req: KYCUpdateRequest,
+                      db: Session = Depends(get_db),
+                      current_user: User = Depends(get_current_active_user)):
+    import json
+    client = db.query(Client).filter(Client.id == client_id).first()
+    if not client:
+        raise HTTPException(404, "Client not found")
+
+    if req.kyc_status is not None:
+        client.kyc_status = req.kyc_status
+        # Auto-set kyc_verified when status becomes 'verified'
+        if req.kyc_status == "verified":
+            client.kyc_verified = True
+            client.kyc_verified_at = datetime.utcnow()
+            client.kyc_verified_by = current_user.id
+            client.kyc_date = datetime.utcnow().date()
+        elif req.kyc_status in ("pending", "rejected"):
+            client.kyc_verified = False
+    if req.source_of_funds is not None:
+        client.source_of_funds = req.source_of_funds
+    if req.beneficial_owner is not None:
+        client.beneficial_owner = req.beneficial_owner
+    if req.engagement_letter_sent is not None:
+        client.engagement_letter_sent = req.engagement_letter_sent
+    if req.notes is not None:
+        client.notes = req.notes
+
+    client.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(client)
+    _log_activity(db, current_user.id, "update_kyc",
+                  f"Updated KYC status to '{client.kyc_status}' for {client.display_name}",
+                  "client", client.id)
+    return _client_out(client, db, detailed=True)
+
+
+@app.put("/api/clients/{client_id}/kyc/checklist")
+def update_onboarding_checklist(client_id: int, req: ChecklistUpdateRequest,
+                                db: Session = Depends(get_db),
+                                current_user: User = Depends(get_current_active_user)):
+    import json
+    client = db.query(Client).filter(Client.id == client_id).first()
+    if not client:
+        raise HTTPException(404, "Client not found")
+
+    # Merge new checklist state over existing
+    try: existing = json.loads(client.onboarding_checklist or '{}')
+    except: existing = {}
+    existing.update(req.checklist)
+    client.onboarding_checklist = json.dumps(existing)
+    client.updated_at = datetime.utcnow()
+    db.commit()
+    _log_activity(db, current_user.id, "update_checklist",
+                  f"Updated onboarding checklist for {client.display_name}",
+                  "client", client.id)
+    return {"ok": True, "checklist": existing}
 
 
 # ─────────────────────────────────────────────────────────────
@@ -867,6 +964,127 @@ def _matter_out(m: Matter, db: Session, detailed: bool = False) -> dict:
         d["retainer_amount"] = m.retainer_amount
         d["fixed_fee"] = m.fixed_fee
     return d
+
+
+class MatterAccessGrant(BaseModel):
+    user_id: int
+    access_level: str = "view"   # view | edit | admin
+    notes: Optional[str] = None
+    expires_at: Optional[str] = None   # ISO datetime string, optional
+
+
+# ─────────────────────────────────────────────────────────────
+# MATTER ACCESS MANAGEMENT
+# ─────────────────────────────────────────────────────────────
+
+@app.get("/api/matters/{matter_id}/access")
+async def list_matter_access(
+    matter_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """List all access grants for a matter (admin/responsible attorney only)."""
+    await require_matter_access(matter_id, "admin", db, current_user)
+    grants = db.query(MatterAccess).filter(MatterAccess.matter_id == matter_id).all()
+    result = []
+    for g in grants:
+        user = db.query(User).filter(User.id == g.user_id).first()
+        grantor = db.query(User).filter(User.id == g.granted_by).first()
+        result.append({
+            "id": g.id,
+            "user_id": g.user_id,
+            "user_name": user.full_name if user else None,
+            "user_role": user.user_role if user else None,
+            "access_level": g.access_level,
+            "granted_by": grantor.full_name if grantor else None,
+            "granted_at": g.granted_at.isoformat() if g.granted_at else None,
+            "expires_at": g.expires_at.isoformat() if g.expires_at else None,
+            "notes": g.notes,
+        })
+    return result
+
+
+@app.post("/api/matters/{matter_id}/access", status_code=201)
+async def grant_matter_access(
+    matter_id: int,
+    req: MatterAccessGrant,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Grant a user access to a matter."""
+    await require_matter_access(matter_id, "admin", db, current_user)
+
+    # Validate target user exists
+    target = db.query(User).filter(User.id == req.user_id).first()
+    if not target:
+        raise HTTPException(404, "User not found")
+
+    # Validate access level
+    if req.access_level not in ("view", "edit", "admin"):
+        raise HTTPException(400, "access_level must be view, edit, or admin")
+
+    expires = None
+    if req.expires_at:
+        try:
+            expires = datetime.fromisoformat(req.expires_at)
+        except ValueError:
+            raise HTTPException(400, "expires_at must be a valid ISO datetime")
+
+    # Upsert — update if grant already exists for this user/matter
+    existing = db.query(MatterAccess).filter(
+        MatterAccess.matter_id == matter_id,
+        MatterAccess.user_id == req.user_id,
+    ).first()
+
+    if existing:
+        existing.access_level = req.access_level
+        existing.notes = req.notes
+        existing.expires_at = expires
+        existing.updated_at = datetime.utcnow()
+        db.commit()
+        grant = existing
+    else:
+        grant = MatterAccess(
+            matter_id=matter_id,
+            user_id=req.user_id,
+            access_level=req.access_level,
+            granted_by=current_user.id,
+            notes=req.notes,
+            expires_at=expires,
+        )
+        db.add(grant)
+        db.commit()
+        db.refresh(grant)
+
+    _log_activity(db, current_user.id, "grant_matter_access",
+                  f"Granted {req.access_level} access to {target.full_name} on matter {matter_id}",
+                  "matter", matter_id)
+    return {"id": grant.id, "user_id": grant.user_id, "access_level": grant.access_level,
+            "expires_at": grant.expires_at.isoformat() if grant.expires_at else None}
+
+
+@app.delete("/api/matters/{matter_id}/access/{user_id}", status_code=200)
+async def revoke_matter_access(
+    matter_id: int,
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Revoke a user's access to a matter."""
+    await require_matter_access(matter_id, "admin", db, current_user)
+    grant = db.query(MatterAccess).filter(
+        MatterAccess.matter_id == matter_id,
+        MatterAccess.user_id == user_id,
+    ).first()
+    if not grant:
+        raise HTTPException(404, "Access grant not found")
+    target = db.query(User).filter(User.id == user_id).first()
+    db.delete(grant)
+    db.commit()
+    _log_activity(db, current_user.id, "revoke_matter_access",
+                  f"Revoked access for {target.full_name if target else user_id} on matter {matter_id}",
+                  "matter", matter_id)
+    return {"message": "Access revoked"}
 
 
 # ─────────────────────────────────────────────────────────────
@@ -1223,7 +1441,6 @@ async def upload_document(
                   f"Uploaded {file.filename}", "document", doc.id)
     return _doc_out(doc)
 
-
 @app.get("/api/documents")
 def list_documents(
     matter_id: Optional[int] = None,
@@ -1245,10 +1462,11 @@ def list_documents(
         q = q.filter(or_(
             LegalDocument.original_filename.ilike(f"%{search}%"),
             LegalDocument.description.ilike(f"%{search}%"),
+            LegalDocument.extracted_text.ilike(f"%{search}%"),
         ))
     total = q.count()
     docs = q.order_by(desc(LegalDocument.upload_date)).offset(skip).limit(limit).all()
-    return {"total": total, "items": [_doc_out(d) for d in docs]}
+    return {"total": total, "items": [_doc_out(d, search) for d in docs]}
 
 
 @app.get("/api/documents/{doc_id}/download")
@@ -1263,7 +1481,15 @@ def download_document(doc_id: int, db: Session = Depends(get_db),
     return FileResponse(doc.file_path, filename=doc.original_filename)
 
 
-def _doc_out(d: LegalDocument) -> dict:
+def _doc_out(d: LegalDocument, search: str = None) -> dict:
+    snippet = None
+    if search and d.extracted_text:
+        text = d.extracted_text
+        idx = text.lower().find(search.lower())
+        if idx >= 0:
+            start = max(0, idx - 80)
+            end = min(len(text), idx + len(search) + 80)
+            snippet = ("…" if start > 0 else "") + text[start:end].strip() + ("…" if end < len(text) else "")
     return {
         "id": d.id, "original_filename": d.original_filename,
         "file_type": d.file_type, "file_size": d.file_size,
@@ -1271,9 +1497,99 @@ def _doc_out(d: LegalDocument) -> dict:
         "matter_id": d.matter_id, "client_id": d.client_id,
         "is_privileged": d.is_privileged,
         "has_text": bool(d.extracted_text),
+        "version": d.version or 1,
+        "parent_doc_id": d.parent_doc_id,
         "usage_count": d.usage_count,
         "upload_date": d.upload_date.isoformat() if d.upload_date else None,
+        "content_snippet": snippet,
     }
+
+
+@app.post("/api/documents/{doc_id}/new-version", status_code=201)
+async def upload_new_version(
+    doc_id: int,
+    description: Optional[str] = Form(None),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Upload a new version of an existing document."""
+    parent = db.query(LegalDocument).filter(LegalDocument.id == doc_id).first()
+    if not parent:
+        raise HTTPException(404, "Document not found")
+
+    # Determine root parent (so all versions share the same parent chain)
+    root_id = parent.parent_doc_id or parent.id
+    root = db.query(LegalDocument).filter(LegalDocument.id == root_id).first()
+
+    # Find the highest existing version number under this root
+    all_versions = db.query(LegalDocument).filter(
+        or_(LegalDocument.id == root_id, LegalDocument.parent_doc_id == root_id)
+    ).all()
+    next_version = max((v.version or 1) for v in all_versions) + 1
+
+    ext = Path(file.filename).suffix.lower()
+    unique_name = f"{uuid.uuid4().hex}{ext}"
+    upload_dir = _get_upload_dir(str(parent.matter_id) if parent.matter_id else "general")
+    file_path = upload_dir / unique_name
+
+    content = await file.read()
+    file_path.write_bytes(content)
+
+    extracted_text = None
+    try:
+        if ext == ".pdf":
+            import pypdf, io
+            reader = pypdf.PdfReader(io.BytesIO(content))
+            extracted_text = "\n".join(p.extract_text() or "" for p in reader.pages)
+        elif ext in (".txt", ".md"):
+            extracted_text = content.decode("utf-8", errors="replace")
+        elif ext == ".docx":
+            import docx, io
+            doc_obj = docx.Document(io.BytesIO(content))
+            extracted_text = "\n".join(p.text for p in doc_obj.paragraphs)
+    except Exception:
+        pass
+
+    new_doc = LegalDocument(
+        matter_id=parent.matter_id, client_id=parent.client_id,
+        filename=unique_name,
+        original_filename=file.filename,
+        file_path=str(file_path), file_type=ext.lstrip("."),
+        file_size=len(content),
+        extracted_text=extracted_text,
+        doc_category=parent.doc_category,
+        description=description or parent.description,
+        is_privileged=parent.is_privileged,
+        version=next_version,
+        parent_doc_id=root_id,
+        uploaded_by=current_user.id,
+    )
+    db.add(new_doc)
+    db.commit()
+    db.refresh(new_doc)
+    _log_activity(db, current_user.id, "upload_document_version",
+                  f"Uploaded v{next_version} of {parent.original_filename}", "document", new_doc.id)
+    return _doc_out(new_doc)
+
+
+@app.get("/api/documents/{doc_id}/versions")
+def get_document_versions(
+    doc_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """List all versions of a document (including the original)."""
+    doc = db.query(LegalDocument).filter(LegalDocument.id == doc_id).first()
+    if not doc:
+        raise HTTPException(404, "Document not found")
+
+    root_id = doc.parent_doc_id or doc.id
+    versions = db.query(LegalDocument).filter(
+        or_(LegalDocument.id == root_id, LegalDocument.parent_doc_id == root_id)
+    ).order_by(LegalDocument.version).all()
+
+    return [_doc_out(v) for v in versions]
 
 
 # ─────────────────────────────────────────────────────────────
@@ -1300,11 +1616,24 @@ def list_time_entries(
 @app.post("/api/billing/time-entries", status_code=201)
 def create_time_entry(req: TimeEntryCreate, db: Session = Depends(get_db),
                       current_user: User = Depends(get_current_active_user)):
+    import math
+    # Round up to nearest 6-minute unit (0.1h) if snap_to_units is True
+    hours = req.hours
+    if req.snap_to_units and hours > 0:
+        hours = math.ceil(hours * 10) / 10   # ceil to nearest 0.1h
+    units = round(hours * 10)  # e.g. 0.3h = 3 units, 1.0h = 10 units
+
     entry = TimeEntry(
         attorney_id=current_user.id,
-        amount=req.hours * req.rate,
-        **{k: v for k, v in req.dict().items() if k != "date"},
+        amount=round(hours * req.rate, 2),
+        matter_id=req.matter_id,
         date=date.fromisoformat(req.date),
+        hours=hours,
+        rate=req.rate,
+        description=req.description,
+        activity_code=req.activity_code,
+        is_billable=req.is_billable,
+        billing_units=units,
     )
     db.add(entry)
     db.commit()
@@ -1320,6 +1649,7 @@ def _time_entry_out(e: TimeEntry, db: Session) -> dict:
         "matter_title": matter.title if matter else None,
         "attorney": attorney.full_name if attorney else None,
         "date": str(e.date), "hours": e.hours,
+        "billing_units": getattr(e, "billing_units", None) or round(e.hours * 10),
         "rate": e.rate, "amount": e.amount,
         "description": e.description,
         "activity_code": e.activity_code,

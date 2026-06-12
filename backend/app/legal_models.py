@@ -69,6 +69,13 @@ class TrustTransactionType(str, enum.Enum):
     TRANSFER    = "transfer"
     REFUND      = "refund"
 
+class KYCStatus(str, enum.Enum):
+    PENDING              = "pending"
+    DOCUMENTS_REQUESTED  = "documents_requested"
+    UNDER_REVIEW         = "under_review"
+    VERIFIED             = "verified"
+    REJECTED             = "rejected"
+
 class ConflictStatus(str, enum.Enum):
     RAISED       = "raised"
     UNDER_REVIEW = "under_review"
@@ -136,6 +143,15 @@ class Client(Base):
     kyc_verified    = Column(Boolean, default=False)
     kyc_date        = Column(Date, nullable=True)
     kyc_documents   = Column(Text)              # JSON list of doc paths
+
+    # Onboarding workflow (Tier 3)
+    kyc_status           = Column(String(30), default="pending")   # KYCStatus enum
+    kyc_verified_at      = Column(DateTime, nullable=True)
+    kyc_verified_by      = Column(Integer, ForeignKey("users.id"), nullable=True)
+    onboarding_checklist = Column(Text)          # JSON: {item_id: {done, done_at, notes}}
+    engagement_letter_sent = Column(Boolean, default=False)
+    source_of_funds      = Column(Text)          # Free-text declaration
+    beneficial_owner     = Column(Text)          # JSON: name, ID, ownership pct
 
     # Metadata
     created_by      = Column(Integer, ForeignKey("users.id"))
@@ -406,6 +422,7 @@ class TimeEntry(Base):
 
     date            = Column(Date, nullable=False, default=date.today)
     hours           = Column(Float, nullable=False)
+    billing_units   = Column(Integer, nullable=True)   # 6-minute units (1 unit = 0.1h)
     rate            = Column(Float, nullable=False)
     amount          = Column(Float, nullable=False)     # hours * rate
 

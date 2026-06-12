@@ -60,5 +60,5 @@ db.close()
 
 print("\n" + "=" * 50)
 print("  Setup complete. Start the server:")
-print("  uvicorn app.main:app --reload --port 8100")
+print("  uvicorn app.main:app --reload --port 8000")
 print("=" * 50)

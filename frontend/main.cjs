@@ -54,7 +54,7 @@ function isPortFree(port) {
   })
 }
 
-async function findFreePort(start = 8000, end = 8100) {
+async function findFreePort(start = 8000, end = 8000) {
   for (let p = start; p <= end; p++) {
     if (await isPortFree(p)) return p
   }
@@ -98,7 +98,7 @@ async function startBackend() {
     app.quit(); return
   }
 
-  backendPort = await findFreePort(8000, 8100)
+  backendPort = await findFreePort(8000, 8000)
   log(`Using port ${backendPort}`)
 
   backendProc = spawn(BACKEND_EXE, [], {

@@ -143,7 +143,7 @@ def wait_for_backend(url, timeout=30):
 
 def run_server_only():
     host = os.getenv("HOST", "0.0.0.0")
-    port = int(os.getenv("PORT", "8100"))
+    port = int(os.getenv("PORT", "8000"))
     log(f"SERVER-ONLY mode: {host}:{port}")
     setup_frontend_serving()
     uvicorn.Config(fastapi_app, host=host, port=port, log_level="info")

@@ -1,4 +1,4 @@
-import { useState, useEffect, createContext, useContext, useCallback } from 'react'
+import React, { useState, useEffect, createContext, useContext, useCallback } from 'react'
 import axios from 'axios'
 import { toast } from 'sonner'
 
@@ -256,6 +256,7 @@ const NAV = [
   { id:'dashboard', label:'Dashboard',    icon:'dashboard' },
   { id:'clients',   label:'Clients',      icon:'clients'   },
   { id:'matters',   label:'Matters',      icon:'matters'   },
+  { id:'conflicts', label:'Conflicts',    icon:'activity'  },
   { id:'documents', label:'Documents',    icon:'documents' },
   { id:'calendar',  label:'Calendar',     icon:'calendar'  },
   { id:'tasks',     label:'Tasks',        icon:'tasks'     },
@@ -263,6 +264,7 @@ const NAV = [
   { id:'trust',     label:'Trust',            icon:'trust'     },
   { id:'reconciliation', label:'GL Reconciliation', icon:'activity' },
   { id:'research',  label:'Research',     icon:'research'  },
+  { id:'limitation_calc', label:'Limitation Calc', icon:'calendar'  },
   { id:'ai',        label:'AI Assistant', icon:'ai'        },
   { id:'users',     label:'Users',        icon:'users'     },
   { id:'audit_log', label:'Audit Log',    icon:'activity'  },
@@ -280,7 +282,7 @@ function Login({ onLogin }) {
   const [mfaRequired, setMFARequired] = useState(false)
   const [tempToken, setTempToken] = useState('')
   const [mfaCode, setMFACode] = useState('')
-  const [useBa ckupCode, setUseBackupCode] = useState(false)
+  const [useBackupCode, setUseBackupCode] = useState(false)
 
   const submit = async e => {
     e.preventDefault(); setLoading(true); setError('')
@@ -588,15 +590,455 @@ function Dashboard() {
     </div>
   )
 }
+// ─── CONTEXTUAL AI PANEL (P6) ────────────────────────────────────────────────
+// Module-specific presets for each area of the practice management system
+const AI_PRESETS = {
+  clients: [
+    { label:'Draft Engagement Letter',  prompt:'Draft a formal engagement letter for client {clientName} ({clientType}) for new legal matter instructions. Include firm undertakings, fee basis, and Law Society of Zimbabwe required disclosures.' },
+    { label:'KYC Risk Summary',         prompt:'Write a KYC risk assessment summary for client {clientName}. KYC status: {kycStatus}. Identify AML risk factors and recommend due diligence steps under Zimbabwe AML/CFT regulations.' },
+    { label:'Client Advice Letter',     prompt:'Draft a formal advice letter to client {clientName} summarising their legal position and recommended next steps.' },
+    { label:'Source of Funds Note',     prompt:'Prepare a source of funds verification note for client {clientName} suitable for Law Society compliance file. Explain what documentation is required and why.' },
+    { label:'Conflict Check Memo',      prompt:'Draft a conflict of interest screening memorandum for new client {clientName} ({clientType}). List checks to perform and confirm file can be opened.' },
+  ],
+  billing: [
+    { label:'Invoice Cover Letter',     prompt:'Draft a professional invoice cover letter for a Zimbabwean law firm billing a client for legal services rendered. Include polite payment terms and bank details placeholder.' },
+    { label:'Fee Dispute Response',     prompt:'Draft a professional response to a client querying their legal invoice. Explain how attorney fees are calculated (6-minute billing units) and affirm the charges are fair.' },
+    { label:'Overdue Payment Reminder', prompt:'Draft a firm but professional overdue invoice payment reminder letter from a Zimbabwean law firm to a client.' },
+    { label:'Disbursement Summary',     prompt:'Explain the common disbursements charged by Zimbabwean law firms (court fees, transfer duties, ZIMRA, stamp duty, search fees) and how they differ from professional fees.' },
+    { label:'Trust Account Explainer',  prompt:"Draft a brief note to a client explaining how the firm's trust account works, why their funds are held there, and how they can request disbursements." },
+  ],
+  trust: [
+    { label:'Trust Receipt Advice',     prompt:"Draft a trust account receipt confirmation letter to a client confirming funds received into the firm's trust account and how they will be applied." },
+    { label:'Trust Statement Letter',   prompt:'Draft a covering letter to accompany a client trust account statement, explaining the opening balance, receipts, disbursements, and closing balance.' },
+    { label:'Disbursement Authority',   prompt:'Draft a disbursement authority request letter asking a client to authorise a specific payment from their trust funds held by the firm.' },
+    { label:'Law Society Compliance',   prompt:'Summarise the key trust account obligations of a Zimbabwean attorney under the Legal Practitioners Act and Law Society of Zimbabwe rules. What records must be kept?' },
+    { label:'Trust Shortfall Notice',   prompt:'Draft a professional notice to a client advising of a shortfall in their trust account and requesting a top-up, in accordance with Zimbabwean legal practice rules.' },
+  ],
+  matter: [
+    { label:'Case Strategy Memo',        prompt:'Draft a case strategy memorandum for the matter titled {matterTitle} ({matterType}). Outline legal issues, prospects of success, risks, and recommended approach under Zimbabwean law.' },
+    { label:'Client Status Update',      prompt:'Draft a professional status update letter to the client in matter {matterTitle}. Summarise progress to date and outline next steps.' },
+    { label:'Legal Opinion',             prompt:'Prepare a structured legal opinion on the matter {matterTitle} ({matterType}). Include issues for determination, relevant law, analysis, and conclusion.' },
+    { label:'Opposing Party Letter',     prompt:'Draft a firm legal letter to the opposing party in matter {matterTitle}. State our client position and demands clearly.' },
+    { label:'Court Preparation Note',    prompt:'Prepare a court appearance preparation note for {matterTitle} in {matterType} proceedings. List key arguments, evidence, and procedural steps.' },
+  ],
+}
 
-// ─── CLIENTS ─────────────────────────────────────────────────────────────────
+function ContextualAIPanel({ module, context, matterId }) {
+  const presets = AI_PRESETS[module] || []
+  const [open, setOpen] = useState(true)
+  const [prompt, setPrompt] = useState('')
+  const [output, setOutput] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [activePreset, setActivePreset] = useState(null)
+
+  // Interpolate {placeholders} with context values
+  const interpolate = (tmpl) => tmpl.replace(/\{(\w+)\}/g, (_, k) => context[k] || k)
+
+  const run = async (customPrompt) => {
+    const finalPrompt = customPrompt || prompt
+    if (!finalPrompt.trim()) return
+    setLoading(true); setOutput('')
+    try {
+      const { data } = await API.post('/ai/generate', {
+        task_type: 'general',
+        prompt: interpolate(finalPrompt),
+        max_tokens: 2000,
+        ...(matterId ? { matter_id: matterId } : {}),
+      })
+      setOutput(data.content || '')
+    } catch(e) {
+      toast.error('AI generation failed')
+    } finally { setLoading(false) }
+  }
+
+  const pickPreset = (p) => {
+    setActivePreset(p.label)
+    setPrompt(interpolate(p.prompt))
+    setOutput('')
+  }
+
+  const copy = () => {
+    navigator.clipboard.writeText(output)
+    toast.success('Copied to clipboard')
+  }
+
+  return (
+    <div style={{
+      width: open ? 320 : 44, flexShrink:0, transition:'width 0.25s',
+      display:'flex', flexDirection:'column', gap:10,
+    }}>
+      {/* Toggle button */}
+      <div style={{ display:'flex', justifyContent: open?'space-between':'center', alignItems:'center' }}>
+        {open && <span style={{ color:C.gold, fontSize:12, fontWeight:600, letterSpacing:'0.05em' }}>
+          ⚡ AI Assistant
+        </span>}
+        <button onClick={() => setOpen(o=>!o)} style={{
+          background:'rgba(201,168,76,0.1)', border:`1px solid rgba(201,168,76,0.3)`,
+          borderRadius:6, color:C.gold, cursor:'pointer', padding:'5px 10px', fontSize:12,
+        }}>{open ? '→' : '←'}</button>
+      </div>
+
+      {open && (
+        <>
+          {/* Preset prompts */}
+          <Card style={{ padding:12 }}>
+            <div style={{ color:C.muted, fontSize:10, textTransform:'uppercase',
+              letterSpacing:'0.1em', marginBottom:10 }}>Quick Prompts</div>
+            {presets.map(p => (
+              <button key={p.label} onClick={() => pickPreset(p)} style={{
+                display:'block', width:'100%', textAlign:'left', padding:'7px 9px',
+                borderRadius:5, border:`1px solid ${activePreset===p.label?'rgba(201,168,76,0.4)':C.border}`,
+                background: activePreset===p.label ? 'rgba(201,168,76,0.08)' : 'transparent',
+                color: activePreset===p.label ? C.gold : C.text3,
+                fontSize:11, cursor:'pointer', marginBottom:4, fontFamily:'inherit',
+                transition:'all 0.15s',
+              }}>{p.label}</button>
+            ))}
+          </Card>
+
+          {/* Custom prompt + output */}
+          <Card style={{ padding:12, flex:1, display:'flex', flexDirection:'column', gap:10 }}>
+            <div style={{ color:C.muted, fontSize:10, textTransform:'uppercase',
+              letterSpacing:'0.1em', marginBottom:4 }}>Prompt</div>
+            <textarea
+              rows={4}
+              style={{ ...iS, resize:'vertical', fontSize:12 }}
+              placeholder="Ask anything about this record…"
+              value={prompt}
+              onChange={e => setPrompt(e.target.value)}
+            />
+            <Btn onClick={() => run()} loading={loading} style={{ width:'100%' }}>
+              {loading ? 'Generating…' : 'Generate ⚡'}
+            </Btn>
+
+            {output && (
+              <div style={{ marginTop:6 }}>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6 }}>
+                  <span style={{ color:C.muted, fontSize:10, textTransform:'uppercase', letterSpacing:'0.08em' }}>Output</span>
+                  <button onClick={copy} style={{
+                    background:'transparent', border:`1px solid ${C.border}`, borderRadius:4,
+                    color:C.text3, fontSize:10, cursor:'pointer', padding:'2px 8px',
+                  }}>Copy</button>
+                </div>
+                <div style={{
+                  background:C.bg2, border:`1px solid ${C.border}`, borderRadius:6,
+                  padding:10, fontSize:12, color:C.text2, lineHeight:1.6,
+                  maxHeight:340, overflowY:'auto', whiteSpace:'pre-wrap', wordBreak:'break-word',
+                }}>{output}</div>
+              </div>
+            )}
+          </Card>
+        </>
+      )}
+    </div>
+  )
+}
+
+// ─── CLIENTS ─────────────────────────────────────────────────
+
+// KYC status metadata
+const KYC_STATUS = {
+  pending:             { color:'red',    label:'Pending'           },
+  documents_requested: { color:'yellow', label:'Docs Requested'   },
+  under_review:        { color:'blue',   label:'Under Review'     },
+  verified:            { color:'green',  label:'Verified'          },
+  rejected:            { color:'red',    label:'Rejected'          },
+}
+
+// Onboarding checklist items (Zimbabwe Law Society AML/KYC requirements)
+const ONBOARDING_ITEMS = [
+  { id:'id_copy',        label:'Copy of National ID / Passport',           category:'identity'  },
+  { id:'proof_address',  label:'Proof of Address (utility bill < 3 months)',category:'identity'  },
+  { id:'kyc_form',       label:'KYC Declaration Form completed',            category:'identity'  },
+  { id:'source_funds',   label:'Source of Funds declaration signed',        category:'aml'       },
+  { id:'beneficial',     label:'Beneficial Ownership declared',             category:'aml'       },
+  { id:'sanctions',      label:'Sanctions / PEP screening completed',       category:'aml'       },
+  { id:'eng_letter',     label:'Engagement letter sent and signed',         category:'mandate'   },
+  { id:'fee_agreement',  label:'Fee agreement / mandate signed',            category:'mandate'   },
+  { id:'conflict_check', label:'Conflict of interest check cleared',        category:'mandate'   },
+  { id:'corp_docs',      label:'Certificate of Incorporation / CR14',       category:'corporate' },
+  { id:'directors',      label:'List of Directors / Partners',              category:'corporate' },
+]
+
+function ClientDetail({ clientId, onBack }) {
+  const [client, setClient] = useState(null)
+  const [tab, setTab] = useState('overview')
+  const [kyc, setKyc] = useState({})
+  const [savingKyc, setSavingKyc] = useState(false)
+  const [savingChecklist, setSavingChecklist] = useState(false)
+  const [checklist, setChecklist] = useState({})
+  const [matters, setMatters] = useState([])
+
+  const load = useCallback(async () => {
+    const { data } = await API.get(`/clients/${clientId}/kyc`)
+    setClient(data)
+    setKyc({
+      kyc_status: data.kyc_status || 'pending',
+      source_of_funds: data.source_of_funds || '',
+      beneficial_owner: data.beneficial_owner || '',
+      engagement_letter_sent: !!data.engagement_letter_sent,
+      notes: data.notes || '',
+    })
+    setChecklist(data.onboarding_checklist || {})
+  }, [clientId])
+
+  const loadMatters = useCallback(async () => {
+    const { data } = await API.get('/matters', { params:{ client_id:clientId, limit:50 } })
+    setMatters(data.items||[])
+  }, [clientId])
+
+  useEffect(() => { load(); loadMatters() }, [load, loadMatters])
+
+  const saveKyc = async () => {
+    setSavingKyc(true)
+    try {
+      await API.put(`/clients/${clientId}/kyc`, kyc)
+      toast.success('KYC details saved')
+      load()
+    } catch(e) { toast.error('Failed to save KYC') }
+    finally { setSavingKyc(false) }
+  }
+
+  const toggleChecklist = async (itemId, done) => {
+    const update = { [itemId]: { done, done_at: done ? new Date().toISOString() : null } }
+    setSavingChecklist(true)
+    try {
+      await API.put(`/clients/${clientId}/kyc/checklist`, { checklist: update })
+      setChecklist(c => ({ ...c, [itemId]: { ...c[itemId], done, done_at: done ? new Date().toISOString() : null } }))
+    } catch(e) { toast.error('Failed to update checklist') }
+    finally { setSavingChecklist(false) }
+  }
+
+  if (!client) return <div style={{ color:C.muted, padding:40, textAlign:'center' }}>Loading…</div>
+
+  const kycMeta = KYC_STATUS[client.kyc_status] || KYC_STATUS.pending
+  const doneCount = ONBOARDING_ITEMS.filter(i => checklist[i.id]?.done).length
+  const pct = Math.round((doneCount / ONBOARDING_ITEMS.length) * 100)
+  const cats = ['identity','aml','mandate','corporate']
+  const catLabels = { identity:'🪪 Identity Verification', aml:'🔍 AML / Source of Funds',
+    mandate:'📄 Client Mandate', corporate:'🏢 Corporate Documents' }
+
+  return (
+    <div style={{ display:'flex', gap:16 }}>
+      {/* Main column */}
+      <div style={{ flex:1, minWidth:0 }}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:20 }}>
+          <div>
+            <Btn size="sm" variant="ghost" onClick={onBack} style={{ marginBottom:8 }}>← Back to Clients</Btn>
+            <h2 style={{ color:C.text, fontSize:22, margin:0, fontFamily:'"Crimson Pro",Georgia,serif' }}>
+              {client.display_name}
+            </h2>
+            <div style={{ display:'flex', gap:8, marginTop:6, alignItems:'center', flexWrap:'wrap' }}>
+              <span style={{ color:C.gold, fontWeight:700, fontSize:12 }}>{client.client_number}</span>
+              <Badge color="blue">{client.client_type}</Badge>
+              <Badge color={kycMeta.color}>{kycMeta.label}</Badge>
+              {client.risk_rating==='high' && <Badge color="red">High Risk</Badge>}
+              {client.engagement_letter_sent && <Badge color="green">Eng. Letter Sent</Badge>}
+            </div>
+          </div>
+        </div>
+
+        <Tabs tabs={[
+          { id:'overview',    label:'Overview'     },
+          { id:'onboarding',  label:`Checklist (${doneCount}/${ONBOARDING_ITEMS.length})` },
+          { id:'kyc_details', label:'KYC & AML'    },
+          { id:'matters',     label:`Matters (${matters.length})` },
+        ]} active={tab} onChange={setTab} />
+
+        {/* OVERVIEW TAB */}
+        {tab==='overview' && (
+          <div style={{ display:'flex', flexDirection:'column', gap:14, marginTop:16 }}>
+            <Card>
+              <div style={{ color:C.muted, fontSize:11, textTransform:'uppercase',
+                letterSpacing:'0.1em', marginBottom:14 }}>Contact Information</div>
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
+                {[
+                  ['Email', client.email],
+                  ['Phone', client.phone],
+                  ['City', client.city],
+                  ['Country', client.country],
+                  ['Address', client.address_line1],
+                  client.client_type==='individual'
+                    ? ['ID / Passport', client.id_number]
+                    : ['Registration No.', client.registration_no],
+                ].map(([label, val]) => (
+                  <div key={label}>
+                    <div style={{ color:C.muted, fontSize:11, marginBottom:3 }}>{label}</div>
+                    <div style={{ color:C.text2, fontSize:13 }}>{val||'—'}</div>
+                  </div>
+                ))}
+              </div>
+            </Card>
+            <Card>
+              <div style={{ color:C.muted, fontSize:11, textTransform:'uppercase',
+                letterSpacing:'0.1em', marginBottom:14 }}>Onboarding Progress</div>
+              <div style={{ display:'flex', justifyContent:'space-between', marginBottom:8 }}>
+                <span style={{ color:C.text3, fontSize:13 }}>{doneCount} of {ONBOARDING_ITEMS.length} items complete</span>
+                <span style={{ color:pct===100?'#34d399':C.gold, fontWeight:700 }}>{pct}%</span>
+              </div>
+              <div style={{ background:C.border, borderRadius:4, height:7, overflow:'hidden' }}>
+                <div style={{ width:`${pct}%`, height:'100%',
+                  background:pct===100?'#34d399':C.gold, transition:'width 0.4s' }} />
+              </div>
+            </Card>
+            {client.notes && (
+              <Card>
+                <div style={{ color:C.muted, fontSize:11, textTransform:'uppercase',
+                  letterSpacing:'0.1em', marginBottom:10 }}>Notes</div>
+                <p style={{ color:C.text2, fontSize:13, lineHeight:1.6, margin:0 }}>{client.notes}</p>
+              </Card>
+            )}
+          </div>
+        )}
+
+        {/* ONBOARDING CHECKLIST TAB */}
+        {tab==='onboarding' && (
+          <div style={{ marginTop:16 }}>
+            <Card>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
+                <div>
+                  <div style={{ color:C.text2, fontWeight:600, fontSize:14 }}>Onboarding Checklist</div>
+                  <div style={{ color:C.muted, fontSize:12, marginTop:3 }}>
+                    Zimbabwe Law Society AML/KYC requirements — click any item to toggle
+                  </div>
+                </div>
+                <div style={{ textAlign:'right' }}>
+                  <div style={{ color:pct===100?'#34d399':C.gold, fontSize:24, fontWeight:700 }}>{pct}%</div>
+                  <div style={{ color:C.muted, fontSize:11 }}>{doneCount}/{ONBOARDING_ITEMS.length}</div>
+                </div>
+              </div>
+              <div style={{ background:C.border, borderRadius:4, height:6, marginBottom:22, overflow:'hidden' }}>
+                <div style={{ width:`${pct}%`, height:'100%',
+                  background:pct===100?'#34d399':C.gold, transition:'width 0.4s' }} />
+              </div>
+              {cats.map(cat => (
+                <div key={cat} style={{ marginBottom:20 }}>
+                  <div style={{ color:C.muted, fontSize:11, textTransform:'uppercase',
+                    letterSpacing:'0.08em', marginBottom:8 }}>{catLabels[cat]}</div>
+                  {ONBOARDING_ITEMS.filter(i => i.category===cat).map(item => {
+                    const st = checklist[item.id] || {}
+                    const isCorpOnly = item.category==='corporate' && client.client_type==='individual'
+                    return (
+                      <div key={item.id} onClick={() => !savingChecklist && !isCorpOnly && toggleChecklist(item.id, !st.done)}
+                        style={{
+                          display:'flex', alignItems:'center', gap:12,
+                          padding:'10px 12px', borderRadius:6, marginBottom:4,
+                          background: isCorpOnly ? 'transparent' : st.done ? 'rgba(52,211,153,0.05)' : 'rgba(255,255,255,0.02)',
+                          border:`1px solid ${isCorpOnly?'transparent': st.done?'rgba(52,211,153,0.2)':C.border}`,
+                          cursor: isCorpOnly ? 'default' : 'pointer', opacity: isCorpOnly ? 0.35 : 1,
+                        }}>
+                        <div style={{
+                          width:18, height:18, borderRadius:4, flexShrink:0,
+                          border:`2px solid ${st.done?'#34d399':C.border2}`,
+                          background:st.done?'#34d399':'transparent',
+                          display:'flex', alignItems:'center', justifyContent:'center',
+                        }}>
+                          {st.done && <span style={{ color:'#0a0e1a', fontSize:11, fontWeight:900 }}>✓</span>}
+                        </div>
+                        <div style={{ flex:1 }}>
+                          <div style={{ color:st.done?'#34d399':C.text2, fontSize:13 }}>{item.label}</div>
+                          {st.done_at && <div style={{ color:C.muted, fontSize:10, marginTop:2 }}>
+                            Completed {new Date(st.done_at).toLocaleDateString()}</div>}
+                        </div>
+                        {isCorpOnly && <span style={{ color:C.muted, fontSize:11 }}>N/A – Individual</span>}
+                      </div>
+                    )
+                  })}
+                </div>
+              ))}
+            </Card>
+          </div>
+        )}
+
+        {/* KYC & AML TAB */}
+        {tab==='kyc_details' && (
+          <div style={{ marginTop:16 }}>
+            <Card>
+              <div style={{ color:C.muted, fontSize:11, textTransform:'uppercase',
+                letterSpacing:'0.1em', marginBottom:16 }}>KYC Status & AML Compliance</div>
+              <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+                <FormField label="KYC / Onboarding Status">
+                  <select style={sS} value={kyc.kyc_status}
+                    onChange={e => setKyc(k => ({ ...k, kyc_status:e.target.value }))}>
+                    {Object.entries(KYC_STATUS).map(([v,m]) =>
+                      <option key={v} value={v}>{m.label}</option>)}
+                  </select>
+                </FormField>
+                <FormField label="Source of Funds Declaration">
+                  <textarea rows={3} style={{ ...iS, resize:'vertical' }}
+                    placeholder="Describe source of funds: employment, business income, inheritance, property sale, etc."
+                    value={kyc.source_of_funds}
+                    onChange={e => setKyc(k => ({ ...k, source_of_funds:e.target.value }))} />
+                </FormField>
+                <FormField label="Beneficial Ownership">
+                  <textarea rows={3} style={{ ...iS, resize:'vertical' }}
+                    placeholder="For corporate clients: beneficial owner names, ID numbers, percentage ownership"
+                    value={kyc.beneficial_owner}
+                    onChange={e => setKyc(k => ({ ...k, beneficial_owner:e.target.value }))} />
+                </FormField>
+                <div style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px',
+                  background:'rgba(255,255,255,0.02)', borderRadius:6, border:`1px solid ${C.border}` }}>
+                  <input type="checkbox" id="eng_letter" checked={!!kyc.engagement_letter_sent}
+                    onChange={e => setKyc(k => ({ ...k, engagement_letter_sent:e.target.checked }))}
+                    style={{ width:16, height:16, accentColor:C.gold }} />
+                  <label htmlFor="eng_letter" style={{ color:C.text2, fontSize:13, cursor:'pointer' }}>
+                    Engagement letter sent and signed by client
+                  </label>
+                </div>
+                {client.kyc_verified_at && (
+                  <div style={{ color:'#34d399', fontSize:12 }}>
+                    ✓ KYC verified on {new Date(client.kyc_verified_at).toLocaleDateString()}
+                  </div>
+                )}
+                <div style={{ display:'flex', justifyContent:'flex-end' }}>
+                  <Btn onClick={saveKyc} loading={savingKyc}>Save KYC Details</Btn>
+                </div>
+              </div>
+            </Card>
+          </div>
+        )}
+
+        {/* MATTERS TAB */}
+        {tab==='matters' && (
+          <div style={{ marginTop:16 }}>
+            <Card style={{ padding:0 }}>
+              <Table headers={['Matter #','Title','Type','Status','Attorney']}>
+                {matters.map((m,i) => (
+                  <tr key={m.id} style={{ borderBottom:`1px solid ${C.border2}`,
+                    background:i%2===0?'transparent':'rgba(255,255,255,0.01)' }}>
+                    <td style={tdS}><span style={{ color:C.gold, fontSize:12, fontWeight:700 }}>{m.matter_number}</span></td>
+                    <td style={tdS}><span style={{ color:C.text2 }}>{m.title}</span></td>
+                    <td style={tdS}><Badge color="blue">{m.matter_type}</Badge></td>
+                    <td style={tdS}><Badge color={m.status==='active'?'green':m.status==='closed'?'gray':'yellow'}>{m.status}</Badge></td>
+                    <td style={tdS}><span style={{ color:C.text3, fontSize:12 }}>{m.attorney_name||'—'}</span></td>
+                  </tr>
+                ))}
+              </Table>
+              {matters.length===0 && <Empty msg="No matters for this client yet." />}
+            </Card>
+          </div>
+        )}
+      </div>
+
+      {/* Contextual AI Sidebar */}
+      <ContextualAIPanel
+        module="clients"
+        context={{ clientId, clientName:client.display_name, clientType:client.client_type,
+          kycStatus:client.kyc_status, mattersCount:client.matters_count }}
+      />
+    </div>
+  )
+}
+
 function Clients() {
   const [clients, setClients] = useState([])
   const [total, setTotal] = useState(0)
   const [search, setSearch] = useState('')
   const [showForm, setShowForm] = useState(false)
-  const [form, setForm] = useState({ client_type:'individual', country:'Zimbabwe' })
+  const [form, setForm] = useState({ client_type:'individual', country:'Zimbabwe', risk_rating:'standard' })
   const [loading, setLoading] = useState(false)
+  const [selected, setSelected] = useState(null)
+  const [kycFilter, setKycFilter] = useState('')
 
   const load = useCallback(async () => {
     const { data } = await API.get('/clients', { params:{ search, limit:50 } })
@@ -604,19 +1046,23 @@ function Clients() {
   }, [search])
   useEffect(() => { load() }, [load])
 
+  if (selected) return <ClientDetail clientId={selected} onBack={() => { setSelected(null); load() }} />
+
   const save = async e => {
     e.preventDefault(); setLoading(true)
     try {
       await API.post('/clients', form)
       toast.success('Client created')
-      setShowForm(false); setForm({ client_type:'individual', country:'Zimbabwe' }); load()
+      setShowForm(false); setForm({ client_type:'individual', country:'Zimbabwe', risk_rating:'standard' }); load()
     } catch(err) { toast.error(err.response?.data?.detail||'Error creating client') }
     finally { setLoading(false) }
   }
 
+  const filtered = kycFilter ? clients.filter(c => c.kyc_status===kycFilter) : clients
+
   return (
     <div>
-      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:20 }}>
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
         <div>
           <h2 style={{ color:C.text, fontSize:20, margin:0,
             fontFamily:'"Crimson Pro",Georgia,serif' }}>Clients</h2>
@@ -624,28 +1070,39 @@ function Clients() {
         </div>
         <Btn icon="plus" onClick={() => setShowForm(true)}>New Client</Btn>
       </div>
-      <SearchBar value={search} onChange={setSearch} placeholder="Search clients by name, number, email…" />
-      <Card style={{ padding:0, marginTop:12 }}>
-        <Table headers={['Client #','Name','Type','Phone','City','KYC','Matters','']}>
-          {clients.map((c,i) => (
-            <tr key={c.id} style={{ borderBottom:`1px solid ${C.border2}`,
-              background:i%2===0?'transparent':'rgba(255,255,255,0.01)' }}>
-              <td style={tdS}><span style={{ color:C.gold, fontWeight:700, fontSize:12 }}>{c.client_number}</span></td>
-              <td style={tdS}><span style={{ color:C.text2, fontWeight:500 }}>{c.display_name}</span></td>
-              <td style={tdS}><Badge color="blue">{c.client_type}</Badge></td>
-              <td style={tdS}><span style={{ color:C.text3, fontSize:12 }}>{c.phone||'—'}</span></td>
-              <td style={tdS}><span style={{ color:C.text3, fontSize:12 }}>{c.city||'—'}</span></td>
-              <td style={tdS}><Badge color={c.kyc_verified?'green':'red'}>{c.kyc_verified?'Verified':'Pending'}</Badge></td>
-              <td style={tdS}><span style={{ color:C.gold, fontWeight:700 }}>{c.matters_count}</span></td>
-              <td style={tdS}><Btn size="sm" variant="secondary" icon="edit">View</Btn></td>
-            </tr>
-          ))}
+      <div style={{ display:'flex', gap:10, marginBottom:12, alignItems:'center' }}>
+        <div style={{ flex:1 }}><SearchBar value={search} onChange={setSearch} placeholder="Search by name, number, email…" /></div>
+        <select style={{ ...sS, width:160 }} value={kycFilter} onChange={e => setKycFilter(e.target.value)}>
+          <option value="">All KYC statuses</option>
+          {Object.entries(KYC_STATUS).map(([v,m]) => <option key={v} value={v}>{m.label}</option>)}
+        </select>
+      </div>
+      <Card style={{ padding:0 }}>
+        <Table headers={['Client #','Name','Type','Phone','City','KYC Status','Matters','']}>
+          {filtered.map((c,i) => {
+            const kycMeta = KYC_STATUS[c.kyc_status] || KYC_STATUS.pending
+            return (
+              <tr key={c.id} style={{ borderBottom:`1px solid ${C.border2}`,
+                background:i%2===0?'transparent':'rgba(255,255,255,0.01)', cursor:'pointer' }}
+                onClick={() => setSelected(c.id)}>
+                <td style={tdS}><span style={{ color:C.gold, fontWeight:700, fontSize:12 }}>{c.client_number}</span></td>
+                <td style={tdS}><span style={{ color:C.text2, fontWeight:500 }}>{c.display_name}</span></td>
+                <td style={tdS}><Badge color="blue">{c.client_type}</Badge></td>
+                <td style={tdS}><span style={{ color:C.text3, fontSize:12 }}>{c.phone||'—'}</span></td>
+                <td style={tdS}><span style={{ color:C.text3, fontSize:12 }}>{c.city||'—'}</span></td>
+                <td style={tdS}><Badge color={kycMeta.color}>{kycMeta.label}</Badge></td>
+                <td style={tdS}><span style={{ color:C.gold, fontWeight:700 }}>{c.matters_count}</span></td>
+                <td style={tdS}><Btn size="sm" variant="secondary"
+                  onClick={e => { e.stopPropagation(); setSelected(c.id) }}>View →</Btn></td>
+              </tr>
+            )
+          })}
         </Table>
-        {clients.length===0 && <Empty msg="No clients found. Create your first client." />}
+        {filtered.length===0 && <Empty msg="No clients found." />}
       </Card>
 
       {showForm && (
-        <Modal title="New Client" onClose={() => setShowForm(false)}>
+        <Modal title="New Client" onClose={() => setShowForm(false)} width={560}>
           <form onSubmit={save} style={{ display:'flex', flexDirection:'column', gap:14 }}>
             <FormField label="Client Type">
               <select style={sS} value={form.client_type}
@@ -654,7 +1111,7 @@ function Clients() {
                   <option key={t} value={t}>{t.charAt(0).toUpperCase()+t.slice(1)}</option>)}
               </select>
             </FormField>
-            {form.client_type === 'individual' ? (
+            {form.client_type==='individual' ? (
               <div style={{ display:'flex', gap:12 }}>
                 <FormField label="First Name" style={{ flex:1 }}>
                   <input style={iS} required value={form.first_name||''}
@@ -666,10 +1123,16 @@ function Clients() {
                 </FormField>
               </div>
             ) : (
-              <FormField label="Company Name">
-                <input style={iS} required value={form.company_name||''}
-                  onChange={e => setForm(f => ({ ...f, company_name:e.target.value }))} />
-              </FormField>
+              <div style={{ display:'flex', gap:12 }}>
+                <FormField label="Company Name" style={{ flex:2 }}>
+                  <input style={iS} required value={form.company_name||''}
+                    onChange={e => setForm(f => ({ ...f, company_name:e.target.value }))} />
+                </FormField>
+                <FormField label="Reg No." style={{ flex:1 }}>
+                  <input style={iS} value={form.registration_no||''}
+                    onChange={e => setForm(f => ({ ...f, registration_no:e.target.value }))} />
+                </FormField>
+              </div>
             )}
             <div style={{ display:'flex', gap:12 }}>
               <FormField label="Email" style={{ flex:1 }}>
@@ -686,13 +1149,16 @@ function Clients() {
                 <input style={iS} value={form.city||''}
                   onChange={e => setForm(f => ({ ...f, city:e.target.value }))} />
               </FormField>
-              <FormField label="Country" style={{ flex:1 }}>
-                <input style={iS} value={form.country||'Zimbabwe'}
-                  onChange={e => setForm(f => ({ ...f, country:e.target.value }))} />
+              <FormField label="Risk Rating" style={{ flex:1 }}>
+                <select style={sS} value={form.risk_rating}
+                  onChange={e => setForm(f => ({ ...f, risk_rating:e.target.value }))}>
+                  {['low','standard','high'].map(r =>
+                    <option key={r} value={r}>{r.charAt(0).toUpperCase()+r.slice(1)}</option>)}
+                </select>
               </FormField>
             </div>
             <FormField label="Notes">
-              <textarea rows={3} style={{ ...iS, resize:'vertical' }} value={form.notes||''}
+              <textarea rows={2} style={{ ...iS, resize:'vertical' }} value={form.notes||''}
                 onChange={e => setForm(f => ({ ...f, notes:e.target.value }))} />
             </FormField>
             <ModalFooter onCancel={() => setShowForm(false)} loading={loading} label="Create Client" />
@@ -884,6 +1350,139 @@ function Matters() {
   )
 }
 
+// ─── MATTER ACCESS PANEL ─────────────────────────────────────────────────────
+function MatterAccessPanel({ matterId }) {
+  const { user } = useApp()
+  const [grants, setGrants] = useState([])
+  const [users, setUsers] = useState([])
+  const [showForm, setShowForm] = useState(false)
+  const [form, setForm] = useState({ user_id:'', access_level:'view', notes:'', expires_at:'' })
+  const [saving, setSaving] = useState(false)
+
+  const isAdmin = user?.is_admin || user?.user_role === 'admin'
+
+  const load = useCallback(async () => {
+    try {
+      const { data } = await API.get(`/matters/${matterId}/access`)
+      setGrants(data)
+    } catch { /* may 403 for non-admins */ }
+  }, [matterId])
+
+  useEffect(() => {
+    load()
+    API.get('/admin/users').then(r => setUsers(r.data || [])).catch(()=>{})
+  }, [load])
+
+  const grant = async e => {
+    e.preventDefault(); setSaving(true)
+    try {
+      await API.post(`/matters/${matterId}/access`, {
+        user_id: parseInt(form.user_id),
+        access_level: form.access_level,
+        notes: form.notes || null,
+        expires_at: form.expires_at || null,
+      })
+      toast.success('Access granted'); setShowForm(false)
+      setForm({ user_id:'', access_level:'view', notes:'', expires_at:'' })
+      load()
+    } catch(err) { toast.error(err.response?.data?.detail||'Grant failed') }
+    finally { setSaving(false) }
+  }
+
+  const revoke = async userId => {
+    if (!confirm('Revoke this user\'s access?')) return
+    try {
+      await API.delete(`/matters/${matterId}/access/${userId}`)
+      toast.success('Access revoked'); load()
+    } catch(err) { toast.error(err.response?.data?.detail||'Revoke failed') }
+  }
+
+  const levelColor = l => ({ view:'gray', edit:'blue', admin:'gold' }[l]||'gray')
+
+  return (
+    <div>
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:14 }}>
+        <div>
+          <h3 style={{ color:C.text, fontSize:15, margin:0 }}>Matter Access Control</h3>
+          <p style={{ color:C.muted, fontSize:12, margin:'4px 0 0' }}>
+            Manage who can view or edit this matter. Responsible attorney always has edit access.
+          </p>
+        </div>
+        {isAdmin && <Btn icon="plus" onClick={() => setShowForm(true)}>Grant Access</Btn>}
+      </div>
+
+      {grants.length === 0 && !showForm && (
+        <Card style={{ background:'rgba(255,255,255,0.02)' }}>
+          <p style={{ color:C.muted, fontSize:13, margin:0, textAlign:'center' }}>
+            No explicit access grants. Access is controlled by role and matter assignment.
+          </p>
+        </Card>
+      )}
+
+      {grants.map(g => (
+        <Card key={g.id} style={{ marginBottom:10, display:'flex', alignItems:'center', gap:14 }}>
+          <div style={{ width:36, height:36, borderRadius:'50%', background:'#1e2d4a',
+            display:'flex', alignItems:'center', justifyContent:'center',
+            color:C.gold, fontWeight:700, fontSize:13, flexShrink:0 }}>
+            {g.user_name?.split(' ').map(w=>w[0]).join('').slice(0,2)||'?'}
+          </div>
+          <div style={{ flex:1 }}>
+            <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+              <span style={{ color:C.text2, fontWeight:500, fontSize:14 }}>{g.user_name}</span>
+              <Badge color={levelColor(g.access_level)}>{g.access_level}</Badge>
+              <span style={{ color:C.muted, fontSize:11 }}>{g.user_role}</span>
+            </div>
+            <div style={{ color:C.muted, fontSize:11, marginTop:3 }}>
+              Granted by {g.granted_by} · {g.granted_at?.slice(0,10)}
+              {g.expires_at && ` · Expires ${g.expires_at.slice(0,10)}`}
+              {g.notes && ` · "${g.notes}"`}
+            </div>
+          </div>
+          {isAdmin && (
+            <Btn size="sm" variant="danger" onClick={() => revoke(g.user_id)}>Revoke</Btn>
+          )}
+        </Card>
+      ))}
+
+      {showForm && (
+        <Modal title="Grant Matter Access" onClose={() => setShowForm(false)}>
+          <form onSubmit={grant} style={{ display:'flex', flexDirection:'column', gap:14 }}>
+            <FormField label="User">
+              <select style={sS} required value={form.user_id}
+                onChange={e => setForm(f => ({ ...f, user_id:e.target.value }))}>
+                <option value="">Select user…</option>
+                {users.map(u => (
+                  <option key={u.id} value={u.id}>{u.full_name} ({u.user_role})</option>
+                ))}
+              </select>
+            </FormField>
+            <FormField label="Access Level">
+              <select style={sS} value={form.access_level}
+                onChange={e => setForm(f => ({ ...f, access_level:e.target.value }))}>
+                <option value="view">View — read only</option>
+                <option value="edit">Edit — can add notes, time, documents</option>
+                <option value="admin">Admin — can manage access</option>
+              </select>
+            </FormField>
+            <div style={{ display:'flex', gap:12 }}>
+              <FormField label="Expires (optional)" style={{ flex:1 }}>
+                <input type="datetime-local" style={iS} value={form.expires_at}
+                  onChange={e => setForm(f => ({ ...f, expires_at:e.target.value }))} />
+              </FormField>
+              <FormField label="Notes (optional)" style={{ flex:2 }}>
+                <input type="text" style={iS} value={form.notes}
+                  onChange={e => setForm(f => ({ ...f, notes:e.target.value }))}
+                  placeholder="e.g. Temporary cover for leave" />
+              </FormField>
+            </div>
+            <ModalFooter onCancel={() => setShowForm(false)} label="Grant Access" disabled={saving} />
+          </form>
+        </Modal>
+      )}
+    </div>
+  )
+}
+
 // ─── MATTER DETAIL ────────────────────────────────────────────────────────
 function MatterDetail({ matterId, onBack }) {
   const [matter, setMatter] = useState(null)
@@ -900,6 +1499,26 @@ function MatterDetail({ matterId, onBack }) {
   const [hearingForm, setHearingForm] = useState({ hearing_type:'hearing', title:'', date:todayStr(), reminder_days:3 })
   const [timeForm, setTimeForm] = useState({ date:todayStr(), hours:1, rate:200, description:'', is_billable:true })
   const [uploading, setUploading] = useState(false)
+  // 6-minute stopwatch timer
+  const [timerRunning, setTimerRunning] = useState(false)
+  const [timerSeconds, setTimerSeconds] = useState(0)
+  const timerRef = useState(null)
+  useEffect(() => {
+    if (timerRunning) {
+      timerRef[0] = setInterval(() => setTimerSeconds(s => s + 1), 1000)
+    } else {
+      clearInterval(timerRef[0])
+    }
+    return () => clearInterval(timerRef[0])
+  }, [timerRunning])
+  const stopTimer = () => {
+    setTimerRunning(false)
+    const rawHours = timerSeconds / 3600
+    const snapped = Math.ceil(rawHours * 10) / 10
+    setTimeForm(f => ({ ...f, hours: snapped || 0.1 }))
+    toast.success(`Timer stopped: ${(snapped||0.1).toFixed(1)}h (${Math.ceil(snapped*10||1)} units)`)
+  }
+  const resetTimer = () => { setTimerSeconds(0); setTimerRunning(false) }
 
   const loadAll = async () => {
     try {
@@ -958,7 +1577,8 @@ function MatterDetail({ matterId, onBack }) {
   const unbilledAmt = timeEntries.filter(e=>!e.is_billed).reduce((s,e) => s+e.amount, 0)
 
   return (
-    <div>
+    <div style={{ display:'flex', gap:16, alignItems:'flex-start' }}>
+    <div style={{ flex:1, minWidth:0 }}>
       {/* Header */}
       <div style={{ display:'flex', alignItems:'flex-start', gap:16, marginBottom:24 }}>
         <button onClick={onBack} style={{ background:'#1e2d4a', border:`1px solid ${C.border}`,
@@ -1005,6 +1625,7 @@ function MatterDetail({ matterId, onBack }) {
         { id:'documents', label:`Docs (${docs.length})` },
         { id:'time',      label:`Time (${timeEntries.length})` },
         { id:'ai',        label:`AI (${aiSessions.length})` },
+        { id:'access',    label:`Access` },
       ]} active={tab} onChange={setTab} />
 
       {/* OVERVIEW */}
@@ -1266,13 +1887,14 @@ function MatterDetail({ matterId, onBack }) {
           </div>
           {timeEntries.length===0 && <Empty msg="No time entries yet." />}
           <Card style={{ padding:0 }}>
-            <Table headers={['Date','Description','Hours','Rate','Amount','Status']}>
+            <Table headers={['Date','Description','Units','Hours','Rate','Amount','Status']}>
               {timeEntries.map((e,i) => (
                 <tr key={e.id} style={{ borderBottom:`1px solid ${C.border2}`,
                   background:i%2===0?'transparent':'rgba(255,255,255,0.01)' }}>
                   <td style={tdS}><span style={{ color:C.muted, fontSize:12 }}>{e.date}</span></td>
                   <td style={{ ...tdS, maxWidth:240 }}>
                     <span style={{ color:C.text2, fontSize:13 }}>{e.description}</span></td>
+                  <td style={tdS}><span style={{ color:C.text3, fontSize:12 }}>{e.billing_units||Math.ceil(e.hours*10)}u</span></td>
                   <td style={tdS}><span style={{ color:C.gold, fontWeight:600 }}>{e.hours}h</span></td>
                   <td style={tdS}><span style={{ color:C.text3, fontSize:12 }}>${e.rate}/hr</span></td>
                   <td style={tdS}><span style={{ color:'#34d399', fontWeight:600 }}>
@@ -1284,17 +1906,38 @@ function MatterDetail({ matterId, onBack }) {
             </Table>
           </Card>
           {showTimeForm && (
-            <Modal title="Log Time" onClose={() => setShowTimeForm(false)}>
+            <Modal title="Log Time" onClose={() => { setShowTimeForm(false); resetTimer() }}>
               <form onSubmit={addTime} style={{ display:'flex', flexDirection:'column', gap:14 }}>
+                {/* Stopwatch */}
+                <div style={{ background:'rgba(255,255,255,0.03)', border:`1px solid ${C.border}`,
+                  borderRadius:10, padding:'12px 16px' }}>
+                  <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+                    <div>
+                      <div style={{ color:C.muted, fontSize:11, textTransform:'uppercase', letterSpacing:'0.1em' }}>Stopwatch</div>
+                      <div style={{ color:C.gold, fontSize:24, fontWeight:700, fontFamily:'"Crimson Pro",Georgia,serif', letterSpacing:'0.05em', marginTop:2 }}>
+                        {String(Math.floor(timerSeconds/3600)).padStart(2,'0')}:{String(Math.floor((timerSeconds%3600)/60)).padStart(2,'0')}:{String(timerSeconds%60).padStart(2,'0')}
+                      </div>
+                      <div style={{ color:C.muted, fontSize:11, marginTop:2 }}>
+                        ≈ {Math.ceil(timerSeconds/360)/10 || 0}h · {Math.ceil(timerSeconds/360) || 0} units (6-min billing)
+                      </div>
+                    </div>
+                    <div style={{ display:'flex', gap:8 }}>
+                      {!timerRunning
+                        ? <Btn size="sm" variant="success" onClick={() => setTimerRunning(true)}>▶ Start</Btn>
+                        : <Btn size="sm" variant="danger" onClick={stopTimer}>⏹ Stop & Use</Btn>}
+                      <Btn size="sm" variant="ghost" onClick={resetTimer}>Reset</Btn>
+                    </div>
+                  </div>
+                </div>
                 <div style={{ display:'flex', gap:12 }}>
                   <FormField label="Date" style={{ flex:1 }}>
                     <input type="date" style={iS} required value={timeForm.date}
                       onChange={e => setTimeForm(f => ({ ...f, date:e.target.value }))} />
                   </FormField>
-                  <FormField label="Hours" style={{ flex:1 }}>
-                    <input type="number" step="0.25" min="0.25" style={iS} required
+                  <FormField label="Hours (auto-snaps to 0.1h units)" style={{ flex:2 }}>
+                    <input type="number" step="0.1" min="0.1" style={iS} required
                       value={timeForm.hours}
-                      onChange={e => setTimeForm(f => ({ ...f, hours:parseFloat(e.target.value) }))} />
+                      onChange={e => setTimeForm(f => ({ ...f, hours:parseFloat(e.target.value)||0.1 }))} />
                   </FormField>
                   <FormField label="Rate (USD/hr)" style={{ flex:1 }}>
                     <input type="number" step="10" style={iS} required value={timeForm.rate}
@@ -1314,11 +1957,15 @@ function MatterDetail({ matterId, onBack }) {
                   Billable to client
                 </label>
                 <div style={{ background:'rgba(201,168,76,0.08)',
-                  border:`1px solid rgba(201,168,76,0.2)`, borderRadius:8, padding:'10px 14px' }}>
+                  border:`1px solid rgba(201,168,76,0.2)`, borderRadius:8, padding:'10px 14px',
+                  display:'flex', justifyContent:'space-between', alignItems:'center' }}>
                   <span style={{ color:C.gold, fontWeight:700 }}>
                     Total: ${(timeForm.hours * timeForm.rate).toFixed(2)}</span>
+                  <span style={{ color:C.muted, fontSize:12 }}>
+                    {Math.ceil(timeForm.hours * 10)} units × 6 min = {timeForm.hours.toFixed(1)}h
+                  </span>
                 </div>
-                <ModalFooter onCancel={() => setShowTimeForm(false)} label="Log Time" />
+                <ModalFooter onCancel={() => { setShowTimeForm(false); resetTimer() }} label="Log Time" />
               </form>
             </Modal>
           )}
@@ -1357,7 +2004,19 @@ function MatterDetail({ matterId, onBack }) {
           ))}
         </div>
       )}
+
+      {/* ACCESS MANAGEMENT */}
+      {tab==='access' && (
+        <MatterAccessPanel matterId={matterId} />
+      )}
     </div>
+    <ContextualAIPanel
+      module="matter"
+      matterId={matterId}
+      context={{ matterId, matterTitle: matter?.title || '', clientName: matter?.client_name || '',
+        matterType: matter?.matter_type || '', status: matter?.status || '' }}
+    />
+  </div>
   )
 }
 
@@ -1375,7 +2034,8 @@ function Billing() {
   useEffect(() => { loadAll() }, [])
 
   return (
-    <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
+    <div style={{ display:'flex', gap:16, alignItems:'flex-start' }}>
+      <div style={{ flex:1, minWidth:0, display:'flex', flexDirection:'column', gap:16 }}>
       {summary && (
         <div style={{ display:'flex', gap:14 }}>
           <StatCard label="Total Invoiced"  value={`$${(summary.total_invoiced||0).toLocaleString()}`}  icon="billing" color={C.gold} />
@@ -1442,6 +2102,11 @@ function Billing() {
           onDone={() => { setShowCreate(false); loadAll() }}
         />
       )}
+      </div>
+      <ContextualAIPanel
+        module="billing"
+        context={{ summary: summary ? JSON.stringify(summary) : '' }}
+      />
     </div>
   )
 }
@@ -1984,6 +2649,8 @@ function Documents() {
   const [uploading, setUploading] = useState(false)
   const [summary, setSummary] = useState(null)
   const [summarising, setSummarising] = useState(null)
+  const [versions, setVersions] = useState(null)
+  const [uploadingVersion, setUploadingVersion] = useState(false)
 
   const load = useCallback(async () => {
     const { data } = await API.get('/documents', { params:{ search, limit:50 } })
@@ -2008,8 +2675,30 @@ function Documents() {
     try {
       const { data } = await API.post(`/ai/summarize-document/${doc.id}`)
       setSummary({ doc, text:data.summary })
-    } catch(err) { toast.error(err.response?.data?.detail||'Summarise failed — no text extracted') }
+    } catch(err) { toast.error(err.response?.data?.detail||'Summarise failed') }
     finally { setSummarising(null) }
+  }
+
+  const showVersions = async doc => {
+    try {
+      const { data } = await API.get(`/documents/${doc.id}/versions`)
+      setVersions({ doc, list: data })
+    } catch { toast.error('Could not load version history') }
+  }
+
+  const uploadNewVersion = async (docId, e) => {
+    const file = e.target.files[0]; if (!file) return
+    setUploadingVersion(true)
+    const fd = new FormData(); fd.append('file', file)
+    try {
+      await API.post(`/documents/${docId}/new-version`, fd, { headers:{ 'Content-Type':'multipart/form-data' } })
+      toast.success('New version uploaded'); load()
+      if (versions) {
+        const { data } = await API.get(`/documents/${versions.doc.id}/versions`)
+        setVersions(v => ({ ...v, list: data }))
+      }
+    } catch { toast.error('Version upload failed') }
+    finally { setUploadingVersion(false); e.target.value='' }
   }
 
   const catColor = c => ({ pleading:'red', affidavit:'yellow', contract:'gold',
@@ -2031,20 +2720,29 @@ function Documents() {
             style={{ display:'none' }} onChange={upload} />
         </label>
       </div>
-      <SearchBar value={search} onChange={setSearch} placeholder="Search documents…" />
+      <SearchBar value={search} onChange={setSearch} placeholder="Search filenames, descriptions, and document content…" />
+      {search && <p style={{ color:C.muted, fontSize:11, marginTop:4 }}>Full-text search across all extracted document content</p>}
       <Card style={{ padding:0, marginTop:12 }}>
         <Table headers={['Filename','Type','Category','Size','Uploaded','AI','']}>
           {docs.map((d,i) => (
             <tr key={d.id} style={{ borderBottom:`1px solid ${C.border2}`,
               background:i%2===0?'transparent':'rgba(255,255,255,0.01)' }}>
               <td style={tdS}>
-                <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                <div style={{ display:'flex', alignItems:'flex-start', gap:8 }}>
                   <Icon name="documents" size={14} />
-                  <span style={{ color:C.text2, fontSize:13, maxWidth:200,
-                    overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-                    {d.original_filename}</span>
+                  <div>
+                    <span style={{ color:C.text2, fontSize:13 }}>{d.original_filename}</span>
+                    <div style={{ display:'flex', gap:8, marginTop:2 }}>
+                      {d.has_text && <span style={{ color:'#34d399', fontSize:10 }}>✓ Text extracted</span>}
+                      {(d.version||1) > 1 && <span style={{ color:C.gold, fontSize:10, fontWeight:700 }}>v{d.version}</span>}
+                    </div>
+                    {d.content_snippet && (
+                      <div style={{ color:C.muted, fontSize:11, marginTop:3, maxWidth:260, fontStyle:'italic', lineHeight:1.4 }}>
+                        "…{d.content_snippet}…"
+                      </div>
+                    )}
+                  </div>
                 </div>
-                {d.has_text && <div style={{ color:'#34d399', fontSize:10 }}>✓ Text extracted</div>}
               </td>
               <td style={tdS}><Badge color="gray">{d.file_type?.toUpperCase()}</Badge></td>
               <td style={tdS}><Badge color={catColor(d.doc_category)}>{d.doc_category}</Badge></td>
@@ -2060,9 +2758,13 @@ function Documents() {
                   </Btn>
                 )}
               </td>
-              <td style={tdS}>
-                <Btn size="sm" variant="secondary" icon="download"
-                  onClick={() => window.open(`/api/documents/${d.id}/download`)}>Get</Btn>
+              <td style={{ ...tdS, whiteSpace:'nowrap' }}>
+                <div style={{ display:'flex', gap:4 }}>
+                  <Btn size="sm" variant="secondary" icon="download"
+                    onClick={() => window.open(`/api/documents/${d.id}/download`)}>Get</Btn>
+                  <Btn size="sm" variant="ghost" icon="copy"
+                    onClick={() => showVersions(d)}>v{d.version||1}</Btn>
+                </div>
               </td>
             </tr>
           ))}
@@ -2087,9 +2789,52 @@ function Documents() {
           </div>
         </Modal>
       )}
+
+      {versions && (
+        <Modal title={`Version History — ${versions.doc.original_filename}`}
+          onClose={() => setVersions(null)} width={560}>
+          <div style={{ marginBottom:16 }}>
+            {(versions.list||[]).map(v => (
+              <div key={v.id} style={{ display:'flex', alignItems:'center', gap:12,
+                padding:'10px 14px', borderRadius:8, marginBottom:8,
+                background: v.id===versions.doc.id ? 'rgba(201,168,76,0.08)' : 'rgba(255,255,255,0.02)',
+                border:`1px solid ${v.id===versions.doc.id ? 'rgba(201,168,76,0.3)' : C.border}` }}>
+                <div style={{ flex:1 }}>
+                  <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+                    <span style={{ color:C.gold, fontWeight:700, fontSize:14 }}>v{v.version||1}</span>
+                    <span style={{ color:C.text2, fontSize:13 }}>{v.original_filename}</span>
+                    {v.id===versions.doc.id && <Badge color="gold">Current</Badge>}
+                  </div>
+                  <div style={{ color:C.muted, fontSize:11, marginTop:3 }}>
+                    {v.upload_date?.slice(0,10)} · {v.file_size ? `${Math.round(v.file_size/1024)} KB` : '—'}
+                    {v.description && ` · ${v.description}`}
+                  </div>
+                </div>
+                <Btn size="sm" variant="secondary" icon="download"
+                  onClick={() => window.open(`/api/documents/${v.id}/download`)}>
+                  Download
+                </Btn>
+              </div>
+            ))}
+          </div>
+          <div style={{ borderTop:`1px solid ${C.border}`, paddingTop:14 }}>
+            <p style={{ color:C.muted, fontSize:12, marginBottom:8 }}>Upload a new version:</p>
+            <label style={{ display:'inline-flex', alignItems:'center', gap:6,
+              padding:'8px 16px', background:'#1e2d4a', borderRadius:8,
+              color:C.text3, fontSize:13, cursor:'pointer', border:`1px solid #253552` }}>
+              <Icon name="upload" size={13} />
+              {uploadingVersion ? 'Uploading…' : 'Choose File'}
+              <input type="file" accept=".pdf,.docx,.txt,.doc" style={{ display:'none' }}
+                onChange={e => uploadNewVersion(versions.doc.id, e)} />
+            </label>
+          </div>
+        </Modal>
+      )}
     </div>
   )
 }
+
+
 // ─── CALENDAR ────────────────────────────────────────────────────────────────
 function Calendar() {
   const [hearings, setHearings] = useState([])
@@ -2594,7 +3339,8 @@ function Trust() {
   }
 
   return (
-    <div>
+    <div style={{ display:'flex', gap:16, alignItems:'flex-start' }}>
+      <div style={{ flex:1, minWidth:0 }}>
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:20 }}>
         <div>
           <h2 style={{ color:C.text, fontSize:20, margin:0,
@@ -2684,6 +3430,11 @@ function Trust() {
           </form>
         </Modal>
       )}
+      </div>
+      <ContextualAIPanel
+        module="trust"
+        context={{ totalTrustBalance: accounts.reduce((s,a)=>s+(a.balance||0),0).toFixed(2) }}
+      />
     </div>
   )
 }
@@ -3539,6 +4290,125 @@ const globalStyle = `
 // ─── VIEW MAP ─────────────────────────────────────────────────────────────────
 
 // ─── CONFLICT CHECK MODAL ─────────────────────────────────────────────────────
+// ─── CONFLICTS MODULE ────────────────────────────────────────────────────────
+function Conflicts() {
+  const { user } = useApp()
+  const [conflicts, setConflicts] = useState([])
+  const [total, setTotal] = useState(0)
+  const [statusFilter, setStatusFilter] = useState('')
+  const [clearing, setClearing] = useState(null)
+  const [notesModal, setNotesModal] = useState(null)  // { id, action: 'clear'|'decline' }
+  const [notesText, setNotesText] = useState('')
+
+  const load = useCallback(async () => {
+    const params = { limit:100 }
+    if (statusFilter) params.status = statusFilter
+    const { data } = await API.get('/conflicts', { params })
+    setConflicts(data.items||[]); setTotal(data.total)
+  }, [statusFilter])
+  useEffect(() => { load() }, [load])
+
+  const openAction = (id, action) => { setNotesModal({ id, action }); setNotesText('') }
+
+  const doAction = async () => {
+    if (!notesModal) return
+    setClearing(notesModal.id)
+    try {
+      const endpoint = `/conflicts/${notesModal.id}/${notesModal.action}`
+      await API.put(endpoint, { notes: notesText })
+      toast.success(notesModal.action === 'clear' ? 'Conflict cleared' : 'Conflict declined')
+      setNotesModal(null); load()
+    } catch(err) {
+      toast.error(err.response?.data?.detail || 'Action failed')
+    } finally { setClearing(null) }
+  }
+
+  const riskColor = r => ({ high:'red', medium:'yellow', low:'green', clear:'gray' }[r]||'gray')
+  const statusColor = s => ({ raised:'red', under_review:'yellow', cleared:'green', declined:'gray' }[s]||'gray')
+
+  const canReview = user?.is_admin || ['attorney','admin'].includes(user?.user_role)
+
+  return (
+    <div>
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:20 }}>
+        <div>
+          <h2 style={{ color:C.text, fontSize:20, margin:0, fontFamily:'"Crimson Pro",Georgia,serif' }}>Conflict Register</h2>
+          <p style={{ color:C.muted, fontSize:12, margin:'4px 0 0' }}>{total} conflict records</p>
+        </div>
+        <select style={{ ...sS, width:160 }} value={statusFilter}
+          onChange={e => setStatusFilter(e.target.value)}>
+          <option value="">All statuses</option>
+          <option value="raised">Raised</option>
+          <option value="under_review">Under Review</option>
+          <option value="cleared">Cleared</option>
+          <option value="declined">Declined</option>
+        </select>
+      </div>
+
+      {conflicts.filter(c => c.status==='raised'||c.status==='under_review').length > 0 && (
+        <Card style={{ background:'rgba(248,113,113,0.07)', border:'1px solid rgba(248,113,113,0.25)', marginBottom:16 }}>
+          <p style={{ color:'#f87171', fontWeight:600, fontSize:13, margin:'0 0 4px' }}>
+            ⚠ {conflicts.filter(c=>c.status==='raised'||c.status==='under_review').length} uncleared conflict(s) require attention
+          </p>
+          <p style={{ color:C.muted, fontSize:12, margin:0 }}>Uncleared conflicts will block new matter creation for affected clients.</p>
+        </Card>
+      )}
+
+      <Card style={{ padding:0 }}>
+        <Table headers={['Client ID','Opposing Party','Counsel','Risk','Status','Raised','Actions']}>
+          {conflicts.map((c,i) => (
+            <tr key={c.id} style={{ borderBottom:`1px solid ${C.border2}`,
+              background:i%2===0?'transparent':'rgba(255,255,255,0.01)' }}>
+              <td style={tdS}><span style={{ color:C.muted, fontSize:12 }}>CLT-{String(c.client_id).padStart(4,'0')}</span></td>
+              <td style={tdS}><span style={{ color:C.text2, fontSize:13, fontWeight:500 }}>{c.opposing_name}</span></td>
+              <td style={tdS}><span style={{ color:C.text3, fontSize:12 }}>{c.opposing_counsel_name||'—'}</span></td>
+              <td style={tdS}><Badge color={riskColor(c.risk_level)}>{c.risk_level}</Badge></td>
+              <td style={tdS}><Badge color={statusColor(c.status)}>{c.status.replace('_',' ')}</Badge></td>
+              <td style={tdS}><span style={{ color:C.muted, fontSize:12 }}>{c.raised_at?.slice(0,10)}</span></td>
+              <td style={{ ...tdS, whiteSpace:'nowrap' }}>
+                {canReview && (c.status==='raised'||c.status==='under_review') && (
+                  <div style={{ display:'flex', gap:6 }}>
+                    <Btn size="sm" variant="success" disabled={clearing===c.id}
+                      onClick={() => openAction(c.id,'clear')}>Clear</Btn>
+                    <Btn size="sm" variant="danger" disabled={clearing===c.id}
+                      onClick={() => openAction(c.id,'decline')}>Decline</Btn>
+                  </div>
+                )}
+                {c.notes && <div style={{ color:C.muted, fontSize:11, marginTop:4, maxWidth:180 }}>{c.notes}</div>}
+              </td>
+            </tr>
+          ))}
+        </Table>
+        {conflicts.length===0 && <Empty msg="No conflicts recorded. Use the Conflict Check when creating a new matter." />}
+      </Card>
+
+      {notesModal && (
+        <Modal title={notesModal.action==='clear' ? 'Clear Conflict' : 'Decline Conflict'}
+          onClose={() => setNotesModal(null)}>
+          <p style={{ color:C.text3, fontSize:13, marginBottom:14 }}>
+            {notesModal.action==='clear'
+              ? 'Confirm that this conflict has been reviewed and the matter may proceed.'
+              : 'Confirm that this matter will not proceed due to this conflict.'}
+          </p>
+          <FormField label="Notes (required for audit trail)">
+            <textarea rows={3} style={{ ...iS, resize:'vertical' }}
+              value={notesText} onChange={e => setNotesText(e.target.value)}
+              placeholder="Explain your decision, e.g. 'Opposing party confirmed to be a different entity'…" />
+          </FormField>
+          <div style={{ display:'flex', gap:10, justifyContent:'flex-end', marginTop:16 }}>
+            <Btn variant="secondary" onClick={() => setNotesModal(null)}>Cancel</Btn>
+            <Btn variant={notesModal.action==='clear'?'success':'danger'}
+              disabled={!notesText.trim() || clearing} onClick={doAction}>
+              {notesModal.action==='clear' ? 'Confirm Clear' : 'Confirm Decline'}
+            </Btn>
+          </div>
+        </Modal>
+      )}
+    </div>
+  )
+}
+
+
 function ConflictCheckModal({ onClose, onProceed }) {
   const [step, setStep] = useState(1)  // 1: select client & search | 2: results | 3: done
   const [clients, setClients] = useState([])
@@ -3765,10 +4635,584 @@ function ConflictCheckModal({ onClose, onProceed }) {
   )
 }
 
+// ─── LIMITATION PERIOD CALCULATOR (P5) ────────────────────────────────────────
+const ZIM_LIMITS = [
+  // CONTRACT & DEBT
+  { id:'contract_general', group:'Contract & Debt', label:'General Contract / Debt',
+    years:3, statute:'Prescription Act [Ch. 8:11]', section:'s.15',
+    note:'Applies to most contractual and debt claims. Prescription begins from when the debt is due and the creditor has knowledge of the debtor.',
+    discoverability:false },
+  { id:'judgment_debt', group:'Contract & Debt', label:'Judgment / Court Decree Debt',
+    years:30, statute:'Prescription Act [Ch. 8:11]', section:'s.11',
+    note:'A debt reduced to judgment or confirmed by court decree prescribes in 30 years.',
+    discoverability:false },
+  { id:'insolvency_claim', group:'Contract & Debt', label:'Insolvency / Liquidation Claim',
+    years:3, statute:'Insolvency Act [Ch. 6:04]', section:'s.47',
+    note:'Claims against insolvent or liquidating estates generally follow the underlying 3-year prescription period.',
+    discoverability:false },
+
+  // PROPERTY
+  { id:'immovable_ownership', group:'Property', label:'Immovable Property — Ownership (Rei Vindicatio)',
+    years:30, statute:'Prescription Act [Ch. 8:11]', section:'s.23',
+    note:'Real rights in immovable property, including actions to vindicate ownership, prescribe in 30 years.',
+    discoverability:false },
+  { id:'mortgage_bond', group:'Property', label:'Mortgage Bond / Real Security',
+    years:30, statute:'Prescription Act [Ch. 8:11]', section:'s.23',
+    note:'Claims secured by registered mortgage bond over immovable property prescribe in 30 years.',
+    discoverability:false },
+  { id:'eviction', group:'Property', label:'Eviction — Unlawful Occupation',
+    years:3, statute:'Prescription Act [Ch. 8:11]', section:'s.15',
+    note:'Action for eviction of unlawful occupants. Consider also Housing Standards and Municipal By-Laws.',
+    discoverability:false },
+
+  // DELICT (TORT)
+  { id:'delict_general', group:'Delict (Tort)', label:'General Delict',
+    years:3, statute:'Prescription Act [Ch. 8:11]', section:'s.15',
+    note:'Period runs from when plaintiff had knowledge of the identity of the debtor and the facts giving rise to the claim.',
+    discoverability:true },
+  { id:'medical_negligence', group:'Delict (Tort)', label:'Medical Negligence',
+    years:3, statute:'Prescription Act [Ch. 8:11]', section:'s.15',
+    note:'Discoverability principle applies — runs from when patient discovered or ought to have discovered the negligence.',
+    discoverability:true },
+  { id:'defamation', group:'Delict (Tort)', label:'Defamation / Injuria',
+    years:3, statute:'Prescription Act [Ch. 8:11]', section:'s.15',
+    note:'Runs from date of publication or when plaintiff became reasonably aware of the defamatory statement.',
+    discoverability:true },
+  { id:'road_accident', group:'Delict (Tort)', label:'Road Traffic Accident',
+    years:3, statute:'Prescription Act [Ch. 8:11]', section:'s.15',
+    note:'Standard 3-year period. NB: 60-day notice to Motor Insurers Bureau required under Motor Vehicle Insurance Act [Ch. 35:03].',
+    discoverability:false, warning:'60-day MIB notice requirement' },
+
+  // LABOUR
+  { id:'unfair_dismissal', group:'Labour', label:'Unfair Dismissal — NEC/Labour Officer Referral',
+    days:90, statute:'Labour Act [Ch. 28:01]', section:'s.93',
+    note:'Referral to NEC or Designated Agent within 90 days of date of dismissal. Strict deadline — courts rarely condone late filing.',
+    discoverability:false, isStrict:true },
+  { id:'labour_discrimination', group:'Labour', label:'Discrimination / Harassment Referral',
+    days:90, statute:'Labour Act [Ch. 28:01]', section:'s.93',
+    note:'Must be referred to the appropriate NEC or Labour Officer within 90 days of the discriminatory act.',
+    discoverability:false, isStrict:true },
+  { id:'wages_claim', group:'Labour', label:'Wages / Remuneration Arrears',
+    years:2, statute:'Labour Act [Ch. 28:01]', section:'s.12',
+    note:'Claims for unpaid wages or statutory remuneration. This is separate from the general Prescription Act period.',
+    discoverability:false },
+
+  // INSURANCE
+  { id:'insurance_general', group:'Insurance', label:'Insurance Claim (General)',
+    years:3, statute:'Prescription Act [Ch. 8:11]', section:'s.15',
+    note:'Always check policy terms — insurers often impose shorter notice periods (30–90 days) in the policy document itself.',
+    discoverability:false },
+  { id:'mib_notice', group:'Insurance', label:'Motor Insurers Bureau — Notice of Claim',
+    days:60, statute:'Motor Vehicle Insurance Act [Ch. 35:03]', section:'s.16',
+    note:'60-day notice to MIB is a condition precedent to any third-party motor accident claim. Failure is fatal to the claim.',
+    discoverability:false, isStrict:true },
+
+  // TAX & REVENUE
+  { id:'zimra_assessment', group:'Tax & Revenue', label:'ZIMRA Back-Assessment (Income Tax)',
+    years:6, statute:'Income Tax Act [Ch. 23:06]', section:'s.47',
+    note:'ZIMRA may reassess income tax returns going back 6 years. Period reduces to 3 years where full disclosure was made.',
+    discoverability:false },
+
+  // ESTATE & SUCCESSION
+  { id:'estate_claim', group:'Estate & Succession', label:'Deceased Estate / Succession Claim',
+    years:30, statute:'Administration of Estates Act [Ch. 6:01]', section:'s.68',
+    note:'Claims to inherit or recover from a deceased estate. The underlying claim type may have a shorter period — always check.',
+    discoverability:false },
+
+  // CRIMINAL (REFERENCE)
+  { id:'criminal_summary', group:'Criminal (Reference)', label:'Summary Offence — Prosecution Deadline',
+    months:18, statute:'Magistrates Court Act [Ch. 7:10]', section:'s.49',
+    note:'State must commence prosecution for summary offences within 18 months of the alleged offence.',
+    discoverability:false, isCriminal:true },
+]
+
+function LimitationCalculator() {
+  const [selected, setSelected]   = useState(null)
+  const [causeDate, setCauseDate] = useState('')
+  const [interruptions, setInterruptions] = useState([])
+  const [showIntForm, setShowIntForm] = useState(false)
+  const [intForm, setIntForm] = useState({ date:'', type:'summons', description:'' })
+  const [viewTab, setViewTab]   = useState('calculator')  // 'calculator' | 'reference'
+  const [matters, setMatters]   = useState([])
+  const [saveMatterId, setSaveMatterId] = useState('')
+  const [saveType, setSaveType] = useState('task')  // 'task' | 'hearing'
+  const [saving, setSaving]     = useState(false)
+  const [savedCalcs, setSavedCalcs] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('il_limcalc_history') || '[]') } catch { return [] }
+  })
+
+  useEffect(() => {
+    API.get('/matters').then(r => setMatters(r.data?.items || [])).catch(() => {})
+  }, [])
+
+  // ── Helpers ─────────────────────────────────────────────
+  const addPeriod = (date, lim) => {
+    const d = new Date(date)
+    if (lim.years)  { d.setFullYear(d.getFullYear() + lim.years); return d }
+    if (lim.months) { d.setMonth(d.getMonth() + lim.months); return d }
+    if (lim.days)   { d.setDate(d.getDate() + lim.days); return d }
+    return d
+  }
+
+  const latestBase = () => {
+    if (!causeDate) return null
+    if (interruptions.length === 0) return new Date(causeDate)
+    const sorted = [...interruptions].filter(i=>i.date).sort((a,b) => new Date(b.date)-new Date(a.date))
+    return sorted.length > 0 ? new Date(sorted[0].date) : new Date(causeDate)
+  }
+
+  const deadline = (selected && causeDate) ? addPeriod(latestBase(), selected) : null
+
+  const status = deadline ? (() => {
+    const diffDays = Math.ceil((deadline - new Date()) / 86400000)
+    if (diffDays < 0)   return { label:'EXPIRED',    bg:'rgba(239,68,68,0.15)',    border:'rgba(239,68,68,0.5)',    text:'#ef4444', icon:'⛔', days: diffDays }
+    if (diffDays <= 30) return { label:'CRITICAL',   bg:'rgba(239,68,68,0.12)',    border:'rgba(239,68,68,0.4)',    text:'#ef4444', icon:'🚨', days: diffDays }
+    if (diffDays <= 90) return { label:'WARNING',    bg:'rgba(245,158,11,0.12)',   border:'rgba(245,158,11,0.5)',   text:'#f59e0b', icon:'⚠️', days: diffDays }
+    if (diffDays <= 180)return { label:'APPROACHING',bg:'rgba(234,179,8,0.1)',     border:'rgba(234,179,8,0.4)',    text:'#eab308', icon:'📅', days: diffDays }
+    return               { label:'SAFE',             bg:'rgba(52,211,153,0.08)',   border:'rgba(52,211,153,0.3)',   text:'#34d399', icon:'✅', days: diffDays }
+  })() : null
+
+  const fmtDate = d => d ? new Date(d).toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' }) : '—'
+  const fmtDeadline = d => d ? d.toLocaleDateString('en-GB', { weekday:'long', day:'2-digit', month:'long', year:'numeric' }) : '—'
+
+  // ── Groups ───────────────────────────────────────────────
+  const groups = [...new Set(ZIM_LIMITS.map(l => l.group))]
+
+  // ── Add Interruption ─────────────────────────────────────
+  const addInterruption = () => {
+    if (!intForm.date) { toast.error('Interruption date required'); return }
+    setInterruptions(prev => [...prev, { ...intForm, id: Date.now() }])
+    setIntForm({ date:'', type:'summons', description:'' })
+    setShowIntForm(false)
+    toast.success('Interrupting event added — prescription restarts from this date')
+  }
+
+  // ── Save to Matter ────────────────────────────────────────
+  const saveToMatter = async () => {
+    if (!saveMatterId) { toast.error('Select a matter'); return }
+    if (!deadline) { toast.error('Complete the calculation first'); return }
+    setSaving(true)
+    const deadlineStr = deadline.toISOString().slice(0,10)
+    const title = `PRESCRIPTION DEADLINE: ${selected.label} (${selected.statute} ${selected.section})`
+    try {
+      if (saveType === 'task') {
+        await API.post('/tasks', {
+          matter_id: parseInt(saveMatterId),
+          title, priority:'high',
+          description:`Limitation period: ${selected.years ? selected.years+' year(s)' : selected.months ? selected.months+' month(s)' : selected.days+' day(s)'} — ${selected.note}`,
+          due_date: deadlineStr,
+        })
+        toast.success('Deadline saved as a high-priority task on the matter')
+      } else {
+        await API.post(`/matters/${saveMatterId}/hearings`, {
+          title, hearing_type:'deadline',
+          date: deadlineStr, reminder_days:30,
+          description:`Limitation period: ${selected.statute} ${selected.section} — ${selected.note}`,
+        })
+        toast.success('Deadline saved as a diary entry on the matter')
+      }
+      // Save to local history
+      const entry = {
+        id: Date.now(), label: selected.label, statute: selected.statute,
+        section: selected.section, causeDate, deadlineDate: deadlineStr,
+        savedAt: new Date().toISOString(),
+      }
+      const updated = [entry, ...savedCalcs.slice(0,19)]
+      setSavedCalcs(updated)
+      localStorage.setItem('il_limcalc_history', JSON.stringify(updated))
+    } catch(err) { toast.error(err.response?.data?.detail || 'Save failed') }
+    finally { setSaving(false) }
+  }
+
+  // ── Period label ─────────────────────────────────────────
+  const periodLabel = lim => {
+    if (lim.years)  return lim.years === 1  ? '1 Year'   : `${lim.years} Years`
+    if (lim.months) return lim.months === 1 ? '1 Month'  : `${lim.months} Months`
+    if (lim.days)   return lim.days === 1   ? '1 Day'    : `${lim.days} Days`
+    return '?'
+  }
+
+  const urgencyBadge = lim => {
+    if (lim.isStrict)   return <Badge color="red">Strict</Badge>
+    if (lim.days && lim.days <= 90) return <Badge color="yellow">Short</Badge>
+    if (lim.years >= 30)            return <Badge color="blue">30 Yr</Badge>
+    return null
+  }
+
+  return (
+    <div style={{ display:'flex', gap:16, alignItems:'flex-start' }}>
+    <div style={{ flex:1, minWidth:0 }}>
+      {/* Header */}
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:20 }}>
+        <div>
+          <h2 style={{ color:C.gold, fontSize:18, margin:'0 0 4px', display:'flex', alignItems:'center', gap:8 }}>
+            ⚖️ Limitation Period Calculator
+          </h2>
+          <p style={{ color:C.muted, fontSize:12, margin:0 }}>
+            Zimbabwe Prescription Act [Ch. 8:11] · Labour Act [Ch. 28:01] · Income Tax Act [Ch. 23:06]
+          </p>
+        </div>
+        <Tabs tabs={[{id:'calculator',label:'Calculator'},{id:'reference',label:'Reference Table'}]}
+          active={viewTab} onChange={setViewTab} />
+      </div>
+
+      {viewTab === 'reference' ? (
+        // ── REFERENCE TABLE ──────────────────────────────────────────────────
+        <Card>
+          <div style={{ color:C.muted, fontSize:11, textTransform:'uppercase', letterSpacing:'0.1em', marginBottom:16 }}>
+            Zimbabwe Limitation Periods — Quick Reference
+          </div>
+          <div style={{ overflowX:'auto' }}>
+            <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13 }}>
+              <thead>
+                <tr style={{ borderBottom:`2px solid ${C.border2}` }}>
+                  {['Claim Type','Period','Statute','Section','Notes'].map(h => (
+                    <th key={h} style={{ ...tdS, color:C.gold, textAlign:'left', fontWeight:600, paddingBottom:10 }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {groups.map(grp => (
+                  <React.Fragment key={grp}>
+                    <tr>
+                      <td colSpan={5} style={{ padding:'14px 16px 6px', color:C.text3, fontSize:11,
+                        textTransform:'uppercase', letterSpacing:'0.1em', background:'rgba(255,255,255,0.015)' }}>
+                        {grp}
+                      </td>
+                    </tr>
+                    {ZIM_LIMITS.filter(l => l.group === grp).map(lim => (
+                      <tr key={lim.id} style={{ borderBottom:`1px solid ${C.border}`, cursor:'pointer' }}
+                        onClick={() => { setSelected(lim); setViewTab('calculator') }}>
+                        <td style={tdS}>
+                          <div style={{ color:C.text, display:'flex', alignItems:'center', gap:8 }}>
+                            {lim.label}
+                            {urgencyBadge(lim)}
+                          </div>
+                          {lim.warning && <div style={{ color:'#f59e0b', fontSize:11, marginTop:3 }}>⚠ {lim.warning}</div>}
+                        </td>
+                        <td style={{ ...tdS, color:C.gold, fontWeight:600, whiteSpace:'nowrap' }}>{periodLabel(lim)}</td>
+                        <td style={{ ...tdS, color:C.text3, fontSize:12 }}>{lim.statute}</td>
+                        <td style={{ ...tdS, color:C.text3, fontSize:12 }}>{lim.section}</td>
+                        <td style={{ ...tdS, color:C.muted, fontSize:11, maxWidth:300 }}>{lim.note}</td>
+                      </tr>
+                    ))}
+                  </React.Fragment>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div style={{ marginTop:12, padding:'10px 14px', background:'rgba(201,168,76,0.06)',
+            borderRadius:6, border:`1px solid rgba(201,168,76,0.2)` }}>
+            <div style={{ color:C.gold, fontSize:11, marginBottom:4, fontWeight:600 }}>DISCLAIMER</div>
+            <div style={{ color:C.muted, fontSize:11, lineHeight:1.7 }}>
+              This reference is a guide only. Prescription periods may be affected by discoverability, legal disability,
+              acknowledgment of debt, judicial interruption, and statutory amendments. Always verify against current statute
+              and case law. Click any row to open in the calculator.
+            </div>
+          </div>
+        </Card>
+      ) : (
+        // ── CALCULATOR ───────────────────────────────────────────────────────
+        <div style={{ display:'flex', gap:16 }}>
+
+          {/* Left panel — Claim selector */}
+          <div style={{ width:260, flexShrink:0, display:'flex', flexDirection:'column', gap:12 }}>
+            <Card>
+              <div style={{ color:C.muted, fontSize:11, textTransform:'uppercase', letterSpacing:'0.1em', marginBottom:14 }}>
+                1. Select Claim Type
+              </div>
+              {groups.map(grp => (
+                <div key={grp} style={{ marginBottom:10 }}>
+                  <div style={{ color:C.text3, fontSize:10, textTransform:'uppercase', letterSpacing:'0.08em',
+                    marginBottom:6, paddingLeft:2 }}>{grp}</div>
+                  {ZIM_LIMITS.filter(l => l.group === grp).map(lim => (
+                    <div key={lim.id} onClick={() => setSelected(lim)}
+                      style={{ padding:'7px 10px', borderRadius:6, marginBottom:3, cursor:'pointer',
+                        background: selected?.id === lim.id ? 'rgba(201,168,76,0.15)' : 'transparent',
+                        border: `1px solid ${selected?.id === lim.id ? 'rgba(201,168,76,0.4)' : 'transparent'}`,
+                        transition:'all 0.15s' }}>
+                      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                        <span style={{ color: selected?.id === lim.id ? C.gold : C.text2, fontSize:12, lineHeight:1.4 }}>
+                          {lim.label}
+                        </span>
+                        <span style={{ color:C.gold, fontSize:11, fontWeight:600, marginLeft:8, whiteSpace:'nowrap' }}>
+                          {periodLabel(lim)}
+                        </span>
+                      </div>
+                      {lim.isStrict && (
+                        <div style={{ color:'#ef4444', fontSize:10, marginTop:2 }}>⚡ Strict deadline</div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </Card>
+          </div>
+
+          {/* Right panel — Calculator */}
+          <div style={{ flex:1, display:'flex', flexDirection:'column', gap:12 }}>
+
+            {/* Selected claim info */}
+            {selected ? (
+              <Card style={{ background:'rgba(201,168,76,0.05)', border:`1px solid rgba(201,168,76,0.25)` }}>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
+                  <div>
+                    <div style={{ color:C.gold, fontSize:16, fontWeight:600, marginBottom:4 }}>{selected.label}</div>
+                    <div style={{ color:C.text3, fontSize:12 }}>{selected.statute} — {selected.section}</div>
+                  </div>
+                  <div style={{ textAlign:'right' }}>
+                    <div style={{ color:C.gold, fontSize:28, fontWeight:700, lineHeight:1 }}>{periodLabel(selected)}</div>
+                    <div style={{ color:C.muted, fontSize:11, marginTop:2 }}>limitation period</div>
+                  </div>
+                </div>
+                <div style={{ marginTop:10, padding:'8px 12px', background:'rgba(255,255,255,0.03)',
+                  borderRadius:5, color:C.text3, fontSize:12, lineHeight:1.6 }}>
+                  {selected.note}
+                </div>
+                <div style={{ display:'flex', gap:8, marginTop:8, flexWrap:'wrap' }}>
+                  {selected.discoverability && <Badge color="blue">Discoverability Rule</Badge>}
+                  {selected.isStrict && <Badge color="red">Strict — No Condonation</Badge>}
+                  {selected.warning && <Badge color="yellow">⚠ {selected.warning}</Badge>}
+                </div>
+              </Card>
+            ) : (
+              <Card>
+                <Empty msg="← Select a claim type to begin" />
+              </Card>
+            )}
+
+            {/* Date inputs */}
+            <Card>
+              <div style={{ color:C.muted, fontSize:11, textTransform:'uppercase', letterSpacing:'0.1em', marginBottom:14 }}>
+                2. Enter Dates
+              </div>
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:16 }}>
+                <FormField label="Date Cause of Action Arose *">
+                  <input type="date" style={iS} value={causeDate}
+                    onChange={e => setCauseDate(e.target.value)} />
+                </FormField>
+                <FormField label="Effective Calculation Base">
+                  <div style={{ ...iS, display:'flex', alignItems:'center', color: interruptions.length > 0 ? C.gold : C.muted }}>
+                    {interruptions.length > 0
+                      ? `${fmtDate(latestBase()?.toISOString())} (latest interruption)`
+                      : 'Same as cause of action'}
+                  </div>
+                </FormField>
+              </div>
+
+              {/* Interruptions */}
+              <div style={{ marginTop:14 }}>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
+                  <div>
+                    <span style={{ color:C.text3, fontSize:12 }}>Interrupting Events</span>
+                    <span style={{ color:C.muted, fontSize:11, marginLeft:8 }}>
+                      (acknowledgment, summons served, part payment — prescription restarts from latest event)
+                    </span>
+                  </div>
+                  <Btn size="sm" variant="ghost" icon="plus" onClick={() => setShowIntForm(true)}>Add</Btn>
+                </div>
+
+                {interruptions.length === 0 && !showIntForm && (
+                  <div style={{ color:C.muted, fontSize:12, padding:'8px 0', fontStyle:'italic' }}>
+                    No interruptions recorded — prescription runs from cause of action date
+                  </div>
+                )}
+                {interruptions.map((ev, i) => (
+                  <div key={ev.id} style={{ display:'flex', justifyContent:'space-between', alignItems:'center',
+                    padding:'7px 12px', background:'rgba(255,255,255,0.02)', borderRadius:5,
+                    border:`1px solid ${C.border}`, marginBottom:4 }}>
+                    <div>
+                      <span style={{ color:C.text2, fontSize:12, fontWeight:600 }}>
+                        {{summons:'Summons Served', acknowledgment:'Acknowledgment of Debt',
+                          part_payment:'Part Payment', agreement:'Agreement to Waive',
+                          other:'Other'}[ev.type] || ev.type}
+                      </span>
+                      <span style={{ color:C.text3, fontSize:11, marginLeft:10 }}>{fmtDate(ev.date)}</span>
+                      {ev.description && <div style={{ color:C.muted, fontSize:11, marginTop:2 }}>{ev.description}</div>}
+                    </div>
+                    <Btn size="sm" variant="danger" onClick={() => setInterruptions(prev => prev.filter((_,j)=>j!==i))}>×</Btn>
+                  </div>
+                ))}
+
+                {showIntForm && (
+                  <div style={{ padding:'12px', background:'rgba(255,255,255,0.025)',
+                    borderRadius:6, border:`1px solid ${C.border2}`, marginTop:8 }}>
+                    <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 2fr auto', gap:10, alignItems:'flex-end' }}>
+                      <FormField label="Event Type">
+                        <select style={sS} value={intForm.type} onChange={e => setIntForm(f=>({...f, type:e.target.value}))}>
+                          <option value="summons">Summons Served</option>
+                          <option value="acknowledgment">Acknowledgment of Debt</option>
+                          <option value="part_payment">Part Payment</option>
+                          <option value="agreement">Agreement to Waive</option>
+                          <option value="other">Other</option>
+                        </select>
+                      </FormField>
+                      <FormField label="Date of Event *">
+                        <input type="date" style={iS} value={intForm.date}
+                          onChange={e => setIntForm(f=>({...f, date:e.target.value}))} />
+                      </FormField>
+                      <FormField label="Description (optional)">
+                        <input type="text" style={iS} value={intForm.description}
+                          placeholder="e.g. Demand letter sent, debtor signed acknowledgment"
+                          onChange={e => setIntForm(f=>({...f, description:e.target.value}))} />
+                      </FormField>
+                      <div style={{ display:'flex', gap:6 }}>
+                        <Btn size="sm" onClick={addInterruption}>Add</Btn>
+                        <Btn size="sm" variant="ghost" onClick={() => setShowIntForm(false)}>Cancel</Btn>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </Card>
+
+            {/* Result */}
+            {deadline ? (
+              <div style={{ padding:'20px 24px', borderRadius:10,
+                background: status.bg, border:`2px solid ${status.border}` }}>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                    <span style={{ fontSize:22 }}>{status.icon}</span>
+                    <div>
+                      <div style={{ color:status.text, fontSize:22, fontWeight:700, letterSpacing:'-0.02em' }}>
+                        {status.label}
+                      </div>
+                      <div style={{ color:C.text3, fontSize:12, marginTop:2 }}>Prescription Status</div>
+                    </div>
+                  </div>
+                  <div style={{ textAlign:'right' }}>
+                    {status.days >= 0 ? (
+                      <div style={{ color:status.text, fontSize:32, fontWeight:700, lineHeight:1 }}>
+                        {status.days}
+                      </div>
+                    ) : (
+                      <div style={{ color:status.text, fontSize:32, fontWeight:700, lineHeight:1 }}>
+                        {Math.abs(status.days)}
+                      </div>
+                    )}
+                    <div style={{ color:C.muted, fontSize:11 }}>
+                      {status.days >= 0 ? 'days remaining' : 'days overdue'}
+                    </div>
+                  </div>
+                </div>
+                <div style={{ borderTop:`1px solid ${status.border}`, paddingTop:14 }}>
+                  <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:16 }}>
+                    <div>
+                      <div style={{ color:C.muted, fontSize:11, marginBottom:4 }}>CAUSE OF ACTION</div>
+                      <div style={{ color:C.text2, fontSize:13, fontWeight:600 }}>{fmtDate(causeDate)}</div>
+                    </div>
+                    {interruptions.length > 0 && (
+                      <div>
+                        <div style={{ color:C.muted, fontSize:11, marginBottom:4 }}>LAST INTERRUPTION</div>
+                        <div style={{ color:C.gold, fontSize:13, fontWeight:600 }}>
+                          {fmtDate(latestBase()?.toISOString())}
+                        </div>
+                      </div>
+                    )}
+                    <div>
+                      <div style={{ color:C.muted, fontSize:11, marginBottom:4 }}>PRESCRIPTION DEADLINE</div>
+                      <div style={{ color:status.text, fontSize:13, fontWeight:700 }}>{fmtDeadline(deadline)}</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              selected && !causeDate && (
+                <div style={{ padding:'16px', borderRadius:8, background:'rgba(255,255,255,0.02)',
+                  border:`1px dashed ${C.border2}`, color:C.muted, fontSize:13, textAlign:'center' }}>
+                  Enter the date the cause of action arose to calculate the deadline ↑
+                </div>
+              )
+            )}
+
+            {/* Save to matter */}
+            {deadline && (
+              <Card>
+                <div style={{ color:C.muted, fontSize:11, textTransform:'uppercase', letterSpacing:'0.1em', marginBottom:14 }}>
+                  3. Save Deadline to Matter (Optional)
+                </div>
+                <div style={{ display:'grid', gridTemplateColumns:'2fr 1fr auto', gap:12, alignItems:'flex-end' }}>
+                  <FormField label="Link to Matter">
+                    <select style={sS} value={saveMatterId} onChange={e => setSaveMatterId(e.target.value)}>
+                      <option value="">— Select matter —</option>
+                      {matters.map(m => (
+                        <option key={m.id} value={m.id}>{m.matter_number} — {m.title}</option>
+                      ))}
+                    </select>
+                  </FormField>
+                  <FormField label="Save As">
+                    <select style={sS} value={saveType} onChange={e => setSaveType(e.target.value)}>
+                      <option value="task">Task (High Priority)</option>
+                      <option value="hearing">Diary Entry</option>
+                    </select>
+                  </FormField>
+                  <Btn onClick={saveToMatter} disabled={saving || !saveMatterId}
+                    style={{ marginBottom:1 }}>
+                    {saving ? 'Saving…' : 'Save Deadline'}
+                  </Btn>
+                </div>
+                {saveMatterId && (
+                  <div style={{ marginTop:10, padding:'8px 12px', background:'rgba(255,255,255,0.02)',
+                    borderRadius:5, color:C.muted, fontSize:11 }}>
+                    Will create: <span style={{ color:C.text2 }}>
+                      "PRESCRIPTION DEADLINE: {selected?.label}" due {fmtDeadline(deadline)}
+                    </span> on the selected matter.
+                  </div>
+                )}
+              </Card>
+            )}
+
+            {/* Calculation history */}
+            {savedCalcs.length > 0 && (
+              <Card>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
+                  <div style={{ color:C.muted, fontSize:11, textTransform:'uppercase', letterSpacing:'0.1em' }}>
+                    Recent Calculations
+                  </div>
+                  <Btn size="sm" variant="ghost" onClick={() => {
+                    setSavedCalcs([])
+                    localStorage.removeItem('il_limcalc_history')
+                  }}>Clear History</Btn>
+                </div>
+                {savedCalcs.slice(0,8).map(c => {
+                  const dDays = Math.ceil((new Date(c.deadlineDate) - new Date()) / 86400000)
+                  const col = dDays < 0 ? '#ef4444' : dDays <= 90 ? '#f59e0b' : '#34d399'
+                  return (
+                    <div key={c.id} style={{ display:'flex', justifyContent:'space-between', alignItems:'center',
+                      padding:'8px 0', borderBottom:`1px solid ${C.border}`, cursor:'pointer' }}
+                      onClick={() => { const l = ZIM_LIMITS.find(x=>x.label===c.label); if(l) { setSelected(l); setCauseDate(c.causeDate) } }}>
+                      <div>
+                        <div style={{ color:C.text2, fontSize:12 }}>{c.label}</div>
+                        <div style={{ color:C.muted, fontSize:11 }}>
+                          From {fmtDate(c.causeDate)} · Saved {new Date(c.savedAt).toLocaleDateString()}
+                        </div>
+                      </div>
+                      <div style={{ textAlign:'right' }}>
+                        <div style={{ color:col, fontSize:12, fontWeight:600 }}>{fmtDate(c.deadlineDate)}</div>
+                        <div style={{ color:col, fontSize:11 }}>
+                          {dDays < 0 ? `${Math.abs(dDays)}d expired` : `${dDays}d left`}
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </Card>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+    </div>
+  )
+}
+
+
 const VIEWS = {
   dashboard: Dashboard, clients: Clients,   matters: Matters,
+  conflicts: Conflicts,
   documents: Documents, calendar: Calendar, tasks: Tasks,
   billing: Billing,     trust: Trust,       reconciliation: TrustReconciliation,  research: Research,
+  limitation_calc: LimitationCalculator,
   ai: AIAssistant,      users: Users,       audit_log: AuditLog,
   settings: Settings,
 }
