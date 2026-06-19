@@ -1,14 +1,31 @@
 @echo off
-REM ============================================================
-REM IntelliLaw — Production Build Script
-REM Run from: intellilaw\backend\
-REM ============================================================
+REM ================================================================
+REM  IntelliLaw — Production Build Script  v2.1
+REM  IGLA Centre for AI & Digital Transformation
+REM ================================================================
+REM  Run from:  intellilaw\backend\
+REM  Produces:  frontend\release\IntelliLaw-Setup-x.x.x.exe
+REM
+REM  FIXES vs v1.0
+REM  - CORRECT BUILD ORDER: Vite -> PyInstaller -> Electron
+REM    (original built PyInstaller first; spec embeds frontend\dist
+REM     so Vite must run first or the embed is empty)
+REM  - All .cmd files called with CALL keyword (npm, npx, pip,
+REM    pyinstaller are .cmd on Windows — omitting CALL silently
+REM    exits the outer script, which was causing early termination)
+REM  - Errorlevel captured into variables before IF checks
+REM  - Python 3.13 micro-version parsing fixed (3.13.11 -> minor=13)
+REM  - INTELLILAW_SERVER_ONLY env-var fix in main.cjs
+REM  - Secure SECRET_KEY + DB_ENCRYPTION_KEY auto-generated
+REM  - Full build log written to build_output.log
+REM ================================================================
 setlocal enabledelayedexpansion
 
 set APP_NAME=IntelliLaw
 set APP_VERSION=1.0.0
 set LAN_PORT=8000
 
+REM ── Directories ─────────────────────────────────────────────────
 set BACKEND_DIR=%~dp0
 if "!BACKEND_DIR:~-1!"=="\" set BACKEND_DIR=!BACKEND_DIR:~0,-1!
 set FRONTEND_DIR=!BACKEND_DIR!\..\frontend
@@ -16,84 +33,407 @@ set PYINSTALLER_DIST=!BACKEND_DIR!\dist
 set BACKEND_DIST=!BACKEND_DIR!\backend-dist
 set ENV_FILE=!BACKEND_DIR!\.env
 set ENV_BACKUP=!BACKEND_DIR!\.env.dev.bak
+set LOG_FILE=!BACKEND_DIR!\build_output.log
+set MAIN_CJS=!FRONTEND_DIR!\main.cjs
+set MAIN_CJS_BAK=!FRONTEND_DIR!\main.cjs.bak
+
+REM ── Init log ────────────────────────────────────────────────────
+echo IntelliLaw Production Build v2.1 > "!LOG_FILE!"
+echo Started: %date% %time% >> "!LOG_FILE!"
+echo Backend:  !BACKEND_DIR! >> "!LOG_FILE!"
+echo Frontend: !FRONTEND_DIR! >> "!LOG_FILE!"
+echo. >> "!LOG_FILE!"
 
 echo.
-echo ============================================================
-echo   %APP_NAME% v%APP_VERSION% — Build
-echo ============================================================
+echo ================================================================
+echo   %APP_NAME% v%APP_VERSION% — Production Build
+echo ================================================================
+echo   Log: !LOG_FILE!
 echo.
 
-REM Pre-flight
-python --version >nul 2>&1 || (echo [ERROR] Python not found & pause & exit /b 1)
-node --version   >nul 2>&1 || (echo [ERROR] Node.js not found & pause & exit /b 1)
+REM ================================================================
+REM  STEP 1 — PRE-FLIGHT CHECKS
+REM ================================================================
+echo [1/6] Pre-flight checks...
 
-if not exist "!BACKEND_DIR!\launcher.py" (echo [ERROR] launcher.py missing & pause & exit /b 1)
-if not exist "!BACKEND_DIR!\app\main.py"  (echo [ERROR] app\main.py missing  & pause & exit /b 1)
-if not exist "!FRONTEND_DIR!\package.json" (echo [ERROR] frontend\package.json missing & pause & exit /b 1)
+REM ── Python ──────────────────────────────────────────────────────
+python --version >nul 2>&1
+set ERR=!errorlevel!
+if !ERR! NEQ 0 (
+    echo.
+    echo   [ERROR] Python not found in PATH.
+    echo   Fix:    Install Python 3.9-3.13 from https://python.org
+    echo           Tick "Add Python to PATH" during install, then
+    echo           close and reopen this terminal.
+    pause & exit /b 1
+)
+for /f "tokens=2" %%v in ('python --version 2^>^&1') do set PYVER=%%v
+REM Parse major and minor — handle micro version (e.g. 3.13.11 -> maj=3 min=13)
+for /f "tokens=1,2 delims=." %%a in ("!PYVER!") do (
+    set PY_MAJ=%%a
+    set PY_MIN=%%b
+)
+if !PY_MAJ! NEQ 3 (
+    echo   [ERROR] Python 3 required. Found: Python !PYVER!
+    pause & exit /b 1
+)
+if !PY_MIN! LSS 9 (
+    echo   [ERROR] Python 3.9+ required. Found: Python !PYVER!
+    echo   Fix:    Install Python 3.9-3.13 from https://python.org
+    pause & exit /b 1
+)
+if !PY_MIN! GTR 13 (
+    echo   [ERROR] Python !PYVER! not supported (3.14+ breaks numpy/SQLAlchemy).
+    echo   Fix:    Install Python 3.11 or 3.13 alongside and use py -3.11 build.bat
+    pause & exit /b 1
+)
+echo   [OK] Python !PYVER!
+echo Python !PYVER! >> "!LOG_FILE!"
 
-echo [OK] Pre-flight checks passed
+REM ── Node.js ─────────────────────────────────────────────────────
+node --version >nul 2>&1
+set ERR=!errorlevel!
+if !ERR! NEQ 0 (
+    echo.
+    echo   [ERROR] Node.js not found in PATH.
+    echo   Fix:    Install Node.js 18+ from https://nodejs.org
+    pause & exit /b 1
+)
+for /f %%v in ('node --version 2^>^&1') do set NODEVER=%%v
+for /f "tokens=1 delims=." %%m in ("!NODEVER:v=!") do set NODE_MAJ=%%m
+if !NODE_MAJ! LSS 18 (
+    echo   [ERROR] Node.js 18+ required. Found: !NODEVER!
+    echo   Fix:    Install Node.js LTS from https://nodejs.org
+    pause & exit /b 1
+)
+echo   [OK] Node.js !NODEVER!
+echo Node.js !NODEVER! >> "!LOG_FILE!"
+
+REM ── npm  (MUST use CALL — npm is npm.cmd on Windows; omitting   ─
+REM         CALL causes the outer batch script to silently exit)   ─
+call npm --version >nul 2>&1
+set ERR=!errorlevel!
+if !ERR! NEQ 0 (
+    echo   [ERROR] npm not found. Reinstall Node.js from https://nodejs.org
+    pause & exit /b 1
+)
+for /f %%v in ('call npm --version 2^>^&1') do set NPMVER=%%v
+echo   [OK] npm !NPMVER!
+echo npm !NPMVER! >> "!LOG_FILE!"
+
+REM ── Required files ──────────────────────────────────────────────
+set MISSING=0
+if not exist "!BACKEND_DIR!\launcher.py"                ( echo   [ERROR] Missing: backend\launcher.py                & set MISSING=1 )
+if not exist "!BACKEND_DIR!\app\main.py"                ( echo   [ERROR] Missing: backend\app\main.py                & set MISSING=1 )
+if not exist "!BACKEND_DIR!\app\database.py"            ( echo   [ERROR] Missing: backend\app\database.py            & set MISSING=1 )
+if not exist "!BACKEND_DIR!\app\models.py"              ( echo   [ERROR] Missing: backend\app\models.py              & set MISSING=1 )
+if not exist "!BACKEND_DIR!\intellilaw_production.spec" ( echo   [ERROR] Missing: backend\intellilaw_production.spec & set MISSING=1 )
+if not exist "!BACKEND_DIR!\requirements.txt"           ( echo   [ERROR] Missing: backend\requirements.txt           & set MISSING=1 )
+if not exist "!FRONTEND_DIR!\package.json"              ( echo   [ERROR] Missing: frontend\package.json              & set MISSING=1 )
+if not exist "!FRONTEND_DIR!\src\App.jsx"               ( echo   [ERROR] Missing: frontend\src\App.jsx               & set MISSING=1 )
+if not exist "!MAIN_CJS!"                               ( echo   [ERROR] Missing: frontend\main.cjs                  & set MISSING=1 )
+if not exist "!ENV_FILE!" (
+    if exist "!BACKEND_DIR!\.env.example" (
+        echo   [INFO]  .env not found — copying from .env.example
+        copy "!BACKEND_DIR!\.env.example" "!ENV_FILE!" >nul
+    ) else (
+        echo   [ERROR] Missing: backend\.env  ^(and no .env.example found^)
+        set MISSING=1
+    )
+)
+if !MISSING! NEQ 0 (
+    echo.
+    echo   One or more required files are missing. Ensure you are running
+    echo   build.bat from the intellilaw\backend\ directory.
+    pause & exit /b 1
+)
+echo   [OK] All required files present
+echo Pre-flight PASSED >> "!LOG_FILE!"
+
+REM ================================================================
+REM  STEP 2 — CLEAN PREVIOUS BUILD ARTIFACTS
+REM ================================================================
 echo.
+echo [2/6] Cleaning previous build artifacts...
+if exist "!BACKEND_DIR!\build"    rmdir /s /q "!BACKEND_DIR!\build"    >nul 2>&1
+if exist "!PYINSTALLER_DIST!"     rmdir /s /q "!PYINSTALLER_DIST!"     >nul 2>&1
+if exist "!BACKEND_DIST!"         rmdir /s /q "!BACKEND_DIST!"         >nul 2>&1
+if exist "!FRONTEND_DIR!\dist"    rmdir /s /q "!FRONTEND_DIR!\dist"    >nul 2>&1
+if exist "!FRONTEND_DIR!\release" del /q "!FRONTEND_DIR!\release\*.exe" >nul 2>&1
+echo   [OK] Clean complete
+echo Clean DONE >> "!LOG_FILE!"
 
-REM Python venv
-if not exist "!BACKEND_DIR!\venv" python -m venv "!BACKEND_DIR!\venv"
+REM ================================================================
+REM  STEP 3 — PYTHON ENVIRONMENT + DEPENDENCIES
+REM  (pip and pyinstaller are .cmd files — always use CALL)
+REM ================================================================
+echo.
+echo [3/6] Python environment...
+
+if not exist "!BACKEND_DIR!\venv" (
+    echo   Creating virtual environment...
+    python -m venv "!BACKEND_DIR!\venv"
+    set ERR=!errorlevel!
+    if !ERR! NEQ 0 (
+        echo   [ERROR] Failed to create venv.
+        echo   Fix:    python -m venv venv
+        pause & exit /b 1
+    )
+)
 call "!BACKEND_DIR!\venv\Scripts\activate.bat"
-pip install --upgrade pip --quiet
-pip install -r "!BACKEND_DIR!\requirements.txt" --quiet
-echo [OK] Python dependencies ready
-echo.
 
-REM Patch .env for LAN
+echo   Upgrading pip...
+call python -m pip install --upgrade pip --quiet >> "!LOG_FILE!" 2>&1
+
+echo   Installing requirements (first run may take several minutes)...
+call pip install -r "!BACKEND_DIR!\requirements.txt" >> "!LOG_FILE!" 2>&1
+set ERR=!errorlevel!
+if !ERR! NEQ 0 (
+    echo   [ERROR] pip install failed.
+    echo   Fix:    Open build_output.log to find the failing package.
+    echo           Common causes: network error, incompatible package.
+    call "!BACKEND_DIR!\venv\Scripts\deactivate.bat"
+    pause & exit /b 1
+)
+
+echo   Installing PyInstaller...
+call pip install "pyinstaller>=6.4,<7" --quiet >> "!LOG_FILE!" 2>&1
+set ERR=!errorlevel!
+if !ERR! NEQ 0 (
+    echo   [ERROR] PyInstaller install failed — see build_output.log
+    call "!BACKEND_DIR!\venv\Scripts\deactivate.bat"
+    pause & exit /b 1
+)
+
+echo   Installing pywebview (desktop window support)...
+call pip install pywebview==4.4.1 --quiet >> "!LOG_FILE!" 2>&1
+set ERR=!errorlevel!
+if !ERR! NEQ 0 (
+    echo   [WARN]  pywebview install failed ^(non-fatal^).
+    echo           Electron shell will still work; pywebview standalone mode won't.
+    echo pywebview FAILED >> "!LOG_FILE!"
+)
+
+echo   [OK] Python environment ready
+echo Python deps DONE >> "!LOG_FILE!"
+
+REM ================================================================
+REM  STEP 4a — GENERATE PRODUCTION .ENV
+REM ================================================================
+echo.
+echo [4a/6] Generating production environment...
+
 copy "!ENV_FILE!" "!ENV_BACKUP!" >nul
-powershell -NoProfile -Command "$c=Get-Content '!ENV_FILE!'; $c | %%{if($_-match'^HOST='){'HOST=0.0.0.0'}elseif($_-match'^PORT='){'PORT=%LAN_PORT%'}elseif($_-match'^CORS_ORIGINS='){'CORS_ORIGINS=*'}else{$_}} | Set-Content '!ENV_FILE!'"
-echo [OK] .env patched for LAN
+echo Dev .env backed up >> "!LOG_FILE!"
+
+for /f %%k in ('python -c "import secrets; print(secrets.token_hex(32))"') do set NEW_SECRET=%%k
+for /f %%k in ('python -c "import secrets; print(secrets.token_hex(32))"') do set NEW_DBKEY=%%k
+
+(
+echo # IntelliLaw Production Environment
+echo # Generated by build.bat — %date% %time%
+echo # IMPORTANT: Change DEFAULT_ADMIN_PASSWORD before distributing.
+echo # Keep DB_ENCRYPTION_KEY — losing it locks you out of all data.
 echo.
+echo APP_NAME=IntelliLaw
+echo FIRM_ID=default
+echo.
+echo HOST=0.0.0.0
+echo PORT=%LAN_PORT%
+echo CORS_ORIGINS=*
+echo.
+echo SECRET_KEY=!NEW_SECRET!
+echo DB_ENCRYPTION_KEY=!NEW_DBKEY!
+echo.
+echo ACCESS_TOKEN_EXPIRE_MINUTES=1440
+echo IDLE_TIMEOUT_MINUTES=15
+echo.
+echo DEFAULT_ADMIN_USERNAME=admin
+echo DEFAULT_ADMIN_EMAIL=admin@intellilaw.local
+echo DEFAULT_ADMIN_PASSWORD=Admin123!
+echo.
+echo DEFAULT_MODEL=qwen2.5-1.5b-instruct-q4_k_m.gguf
+echo MODEL_FORMAT=qwen
+echo LLM_CONTEXT_WINDOW=4096
+echo LLM_THREADS=4
+echo LLM_GPU_LAYERS=0
+echo.
+echo DEMO_MODE=false
+echo ANTHROPIC_API_KEY=
+) > "!ENV_FILE!"
 
-REM PyInstaller
-if exist "!BACKEND_DIR!\build" rmdir /s /q "!BACKEND_DIR!\build"
-if exist "!PYINSTALLER_DIST!"  rmdir /s /q "!PYINSTALLER_DIST!"
+echo   [OK] Production .env written (keys auto-generated)
+echo Production .env written >> "!LOG_FILE!"
 
-pyinstaller --clean --noconfirm "!BACKEND_DIR!\intellilaw_production.spec"
-set BUILD_RESULT=!errorlevel!
+REM ================================================================
+REM  STEP 4b — PATCH main.cjs
+REM  Fixes INTELLISCHOOL_SERVER_ONLY -> INTELLILAW_SERVER_ONLY so
+REM  the backend exe enters server-only mode inside Electron and
+REM  does not try to open a second pywebview window.
+REM ================================================================
+echo   Patching main.cjs...
+copy "!MAIN_CJS!" "!MAIN_CJS_BAK!" >nul
+powershell -NoProfile -Command ^
+    "(Get-Content '!MAIN_CJS!') -replace 'INTELLISCHOOL_SERVER_ONLY','INTELLILAW_SERVER_ONLY' | Set-Content '!MAIN_CJS!'"
+echo   [OK] main.cjs patched
+echo main.cjs patched >> "!LOG_FILE!"
 
-copy "!ENV_BACKUP!" "!ENV_FILE!" >nul
-del  "!ENV_BACKUP!"
+REM ================================================================
+REM  STEP 5a — BUILD VITE FRONTEND
+REM  ** MUST run before PyInstaller **
+REM  intellilaw_production.spec embeds ../frontend/dist into the
+REM  Python binary. If dist does not exist the embed is empty.
+REM ================================================================
+echo.
+echo [5a/6] Building React frontend (Vite)...
+pushd "!FRONTEND_DIR!"
 
-if "!BUILD_RESULT!" NEQ "0" (echo [ERROR] PyInstaller failed & pause & exit /b 1)
-if not exist "!PYINSTALLER_DIST!\IntelliLaw-backend.exe" (
-    echo [ERROR] IntelliLaw-backend.exe not found & pause & exit /b 1
+echo   npm install...
+call npm install --prefer-offline --no-audit --no-fund >> "!LOG_FILE!" 2>&1
+set ERR=!errorlevel!
+if !ERR! NEQ 0 (
+    echo   [ERROR] npm install failed — see build_output.log
+    popd & goto :fail
+)
+
+echo   npm run build...
+call npm run build >> "!LOG_FILE!" 2>&1
+set VITE_RESULT=!errorlevel!
+popd
+
+if !VITE_RESULT! NEQ 0 (
+    echo   [ERROR] Vite build failed — see build_output.log
+    echo   Tip:    cd frontend ^&^& npm run build    to see full errors
+    goto :fail
+)
+if not exist "!FRONTEND_DIR!\dist\index.html" (
+    echo   [ERROR] dist\index.html missing after Vite build.
+    goto :fail
+)
+echo   [OK] Frontend built successfully
+echo Vite DONE >> "!LOG_FILE!"
+
+REM ================================================================
+REM  STEP 5b — BUILD PYTHON BACKEND (PyInstaller)
+REM ================================================================
+echo.
+echo [5b/6] Building Python backend (PyInstaller — 3-8 min)...
+echo PyInstaller starting >> "!LOG_FILE!"
+
+call pyinstaller --clean --noconfirm "!BACKEND_DIR!\intellilaw_production.spec" >> "!LOG_FILE!" 2>&1
+set PYI_RESULT=!errorlevel!
+
+if !PYI_RESULT! NEQ 0 (
+    echo   [ERROR] PyInstaller failed — see build_output.log
+    echo   Tips:
+    echo     - Missing import:  add to hiddenimports in .spec
+    echo     - Test manually:   python launcher.py
+    echo     - Path error:      check datas list in .spec
+    goto :fail
+)
+
+REM Locate exe — handles both one-dir and one-file spec outputs
+set BACKEND_EXE=
+if exist "!PYINSTALLER_DIST!\IntelliLaw-backend.exe"        set BACKEND_EXE=!PYINSTALLER_DIST!\IntelliLaw-backend.exe
+if exist "!PYINSTALLER_DIST!\IntelliLaw\IntelliLaw-backend.exe" set BACKEND_EXE=!PYINSTALLER_DIST!\IntelliLaw\IntelliLaw-backend.exe
+if not defined BACKEND_EXE (
+    echo   [ERROR] IntelliLaw-backend.exe not found after build.
+    goto :fail
 )
 
 if exist "!BACKEND_DIST!" rmdir /s /q "!BACKEND_DIST!"
 mkdir "!BACKEND_DIST!"
-copy "!PYINSTALLER_DIST!\IntelliLaw-backend.exe" "!BACKEND_DIST!\IntelliLaw-backend.exe" >nul
-echo [OK] Backend built
-echo.
+if exist "!PYINSTALLER_DIST!\IntelliLaw\" (
+    xcopy /s /q "!PYINSTALLER_DIST!\IntelliLaw\*" "!BACKEND_DIST!\" >> "!LOG_FILE!" 2>&1
+) else (
+    copy "!BACKEND_EXE!" "!BACKEND_DIST!\IntelliLaw-backend.exe" >nul
+)
+echo   [OK] Backend exe -> backend-dist\IntelliLaw-backend.exe
+echo PyInstaller DONE >> "!LOG_FILE!"
 
-REM Frontend
-pushd "!FRONTEND_DIR!"
-call npm install --prefer-offline --no-audit --no-fund
-call npm run build
-set VITE_RESULT=!errorlevel!
-popd
-if "!VITE_RESULT!" NEQ "0" (echo [ERROR] Vite build failed & pause & exit /b 1)
-echo [OK] Frontend built
+REM ================================================================
+REM  STEP 6 — BUILD ELECTRON NSIS INSTALLER
+REM ================================================================
 echo.
-
-REM Electron NSIS
+echo [6/6] Building Electron installer (2-5 min)...
 pushd "!FRONTEND_DIR!"
-call npx electron-builder --win --x64 --publish never
+call npx electron-builder --win --x64 --publish never >> "!LOG_FILE!" 2>&1
 set EB_RESULT=!errorlevel!
 popd
-if "!EB_RESULT!" NEQ "0" (echo [ERROR] electron-builder failed & pause & exit /b 1)
+
+if !EB_RESULT! NEQ 0 (
+    echo   [ERROR] electron-builder failed — see build_output.log
+    echo   Tip:    Ensure assets\icon.ico exists in frontend\assets\
+    goto :fail
+)
+
+REM ── Find installer exe ───────────────────────────────────────────
+set INSTALLER=
+for /f %%f in ('dir /b /o-d "!FRONTEND_DIR!\release\*.exe" 2^>nul') do (
+    if not defined INSTALLER set INSTALLER=!FRONTEND_DIR!\release\%%f
+)
+if not defined INSTALLER (
+    echo   [ERROR] No .exe found in frontend\release\
+    goto :fail
+)
+
+REM ── Restore dev files ────────────────────────────────────────────
+copy "!ENV_BACKUP!"   "!ENV_FILE!"  >nul & del "!ENV_BACKUP!"
+copy "!MAIN_CJS_BAK!" "!MAIN_CJS!" >nul & del "!MAIN_CJS_BAK!"
+echo Dev .env and main.cjs restored >> "!LOG_FILE!"
+
+REM ── Installer file size ──────────────────────────────────────────
+for %%f in ("!INSTALLER!") do set INS_BYTES=%%~zf
+set /a INS_MB=!INS_BYTES! / 1048576
+
+REM ================================================================
+REM  SUCCESS
+REM ================================================================
+call "!BACKEND_DIR!\venv\Scripts\deactivate.bat" 2>nul
+echo BUILD COMPLETE >> "!LOG_FILE!"
+echo Installer: !INSTALLER! (!INS_MB! MB) >> "!LOG_FILE!"
 
 echo.
-echo ============================================================
+echo ================================================================
 echo   BUILD SUCCESSFUL
-echo ============================================================
+echo ================================================================
 echo.
-echo   Installer: !FRONTEND_DIR!\release\
-echo   LAN port:  %LAN_PORT%
-echo   Default login: admin / Admin123!
+echo   Installer : !INSTALLER!
+echo   Size      : ~!INS_MB! MB
+echo   Log       : !LOG_FILE!
+echo.
+echo   ── Before distributing ──────────────────────────────────────
+echo   1. Edit backend\.env and change DEFAULT_ADMIN_PASSWORD
+echo   2. Set FIRM_ID to a unique code per client (e.g. MHLANGA)
+echo   3. Back up the generated DB_ENCRYPTION_KEY from .env safely
+echo   4. Drop the GGUF AI model into the models\ folder on the
+echo      target PC:
+echo      %%USERPROFILE%%\IntelliLaw\firms\^<FIRM_ID^>\models\
+echo   ─────────────────────────────────────────────────────────────
+echo.
+echo   Default first login:  admin / Admin123!
 echo.
 pause
 endlocal
+exit /b 0
+
+REM ================================================================
+REM  FAIL — always restore .env and main.cjs before exiting
+REM ================================================================
+:fail
+echo.
+if exist "!ENV_BACKUP!"   ( copy "!ENV_BACKUP!"   "!ENV_FILE!"  >nul & del "!ENV_BACKUP!"   )
+if exist "!MAIN_CJS_BAK!" ( copy "!MAIN_CJS_BAK!" "!MAIN_CJS!" >nul & del "!MAIN_CJS_BAK!" )
+call "!BACKEND_DIR!\venv\Scripts\deactivate.bat" 2>nul
+echo BUILD FAILED >> "!LOG_FILE!"
+echo.
+echo   Build failed. Full log: !LOG_FILE!
+echo.
+pause
+endlocal
+exit /b 1
+BATEOF
+echo "Done. $(wc -l < /tmp/build_fixed.bat) lines."
+Output
+
+Done. 434 lines.
