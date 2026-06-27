@@ -44,13 +44,19 @@ REM  STEP 1  Pre-flight checks
 REM ================================================================
 echo [1/6] Pre-flight checks...
 
-REM Python
-python --version > "%TEMP%\pyver.txt" 2>&1
+REM Python — prefer 3.11 via py launcher (system default may be 3.14+)
+set PYTHON_EXE=
+py -3.11 --version > nul 2>&1
+if !errorlevel! EQU 0 (
+    for /f "tokens=*" %%p in ('py -3.11 -c "import sys; print(sys.executable)"') do set PYTHON_EXE=%%p
+    echo   [INFO] Using Python 3.11: !PYTHON_EXE!
+)
+if not defined PYTHON_EXE set PYTHON_EXE=python
+
+"!PYTHON_EXE!" --version > "%TEMP%\pyver.txt" 2>&1
 set ERR=!errorlevel!
 if !ERR! NEQ 0 (
-    echo   [ERROR] Python not found in PATH.
-    echo   Install Python 3.9-3.13 from https://python.org
-    echo   Tick "Add Python to PATH" during install.
+    echo   [ERROR] Python not found. Install Python 3.11 from https://python.org
     pause & exit /b 1
 )
 set /p PYVER= < "%TEMP%\pyver.txt"
@@ -58,7 +64,7 @@ for /f "tokens=2" %%v in ("!PYVER!") do set PYVER=%%v
 for /f "tokens=1,2 delims=." %%a in ("!PYVER!") do ( set PY_MAJ=%%a & set PY_MIN=%%b )
 if !PY_MAJ! NEQ 3  ( echo   [ERROR] Need Python 3. Found: !PYVER! & pause & exit /b 1 )
 if !PY_MIN! LSS 9  ( echo   [ERROR] Need Python 3.9+. Found: !PYVER! & pause & exit /b 1 )
-if !PY_MIN! GTR 13 ( echo   [ERROR] Python 3.14+ not supported (numpy/SQLAlchemy). Use 3.11 or 3.13. & pause & exit /b 1 )
+if !PY_MIN! GTR 13 ( echo   [ERROR] Python 3.14+ not supported. Use 3.11 or 3.13. & pause & exit /b 1 )
 echo   [OK] Python !PYVER!
 echo Python !PYVER! >> "!LOG!"
 
@@ -129,7 +135,7 @@ echo [3/6] Python environment...
 
 if not exist "!BACKEND_DIR!\venv" (
     echo   Creating venv...
-    python -m venv "!BACKEND_DIR!\venv"
+    "!PYTHON_EXE!" -m venv "!BACKEND_DIR!\venv"
     set ERR=!errorlevel!
     if !ERR! NEQ 0 ( echo   [ERROR] venv creation failed & pause & exit /b 1 )
 )
