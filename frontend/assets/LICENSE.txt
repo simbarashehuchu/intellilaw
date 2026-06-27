@@ -1,0 +1,10 @@
+IntelliLaw — Offline AI-Native Legal Operating System
+Copyright (c) 2025 IGLA Centre for AI & Digital Transformation
+
+All rights reserved.
+
+This software is proprietary and confidential. Unauthorized copying,
+distribution, or use of this software, in whole or in part, is strictly
+prohibited without the express written permission of IGLA CAIDT.
+
+For licensing enquiries contact: legal@igla.africa
