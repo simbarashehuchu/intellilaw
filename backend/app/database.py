@@ -234,12 +234,17 @@ class EncryptedSQLiteConnection:
 
     def __call__(self):
         """Return encrypted sqlcipher3 connection with key and optimizations."""
-        import sqlcipher3
-
-        conn = sqlcipher3.connect(str(self.db_path), check_same_thread=False)
-        conn.execute(f"PRAGMA key = 'x\"{self.encryption_key}\"'")
+        try:
+            import sqlcipher3
+            conn = sqlcipher3.connect(str(self.db_path), check_same_thread=False)
+            conn.execute(f"PRAGMA key = 'x\"{self.encryption_key}\"'")
+        except ModuleNotFoundError:
+            import sqlite3
+            logger.warning("sqlcipher3 not available — falling back to unencrypted sqlite3 (dev only)")
+            conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
         conn.execute("PRAGMA journal_mode = WAL")
         conn.execute("PRAGMA synchronous = NORMAL")
+        conn.execute("PRAGMA foreign_keys = ON")
         return conn
 
 
@@ -254,14 +259,22 @@ def get_engine():
         encryption_key = get_encryption_key()
 
         # Migrate plaintext DB to encrypted BEFORE creating engine
-        # This must happen before any connection attempt
         try:
-            if _is_plaintext_database(db_path):
-                logger.info("Plaintext database detected, migrating to encrypted...")
-                _migrate_plaintext_to_encrypted(db_path, encryption_key)
-        except Exception as e:
-            logger.error(f"Failed to migrate database: {e}")
-            raise
+            import sqlcipher3 as _sc  # noqa: F401
+            _sqlcipher_available = True
+        except ModuleNotFoundError:
+            _sqlcipher_available = False
+
+        if _sqlcipher_available:
+            try:
+                if _is_plaintext_database(db_path):
+                    logger.info("Plaintext database detected, migrating to encrypted...")
+                    _migrate_plaintext_to_encrypted(db_path, encryption_key)
+            except Exception as e:
+                logger.error(f"Failed to migrate database: {e}")
+                raise
+        else:
+            logger.warning("sqlcipher3 unavailable — skipping encryption migration (dev mode)")
 
         # Create engine with encrypted connection
         # NullPool: creates a new connection per request (required for sqlcipher3

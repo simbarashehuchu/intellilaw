@@ -1,5 +1,5 @@
 # IntelliLaw Backend Dependencies
-# Python 3.9-3.14 compatible
+# Python 3.9-3.13 compatible
 
 # Web framework
 fastapi==0.115.0
@@ -15,18 +15,13 @@ cryptography>=42.0.5
 
 # Database
 sqlalchemy==2.0.35
-# sqlcipher3 — not available on Windows via pip (requires compiled SQLCipher).
-# The app falls back to standard SQLite automatically in development.
-# For production encryption on Windows, see build instructions.
-# sqlcipher3==3.9.2
-# secure-delete — Linux only, not available on Windows
-# secure-delete==0.2.1
+secure-delete==0.2.1
 
 # Config / validation
 python-dotenv==1.0.1
-pydantic>=2.10.0
-pydantic-settings>=2.5.2
-pydantic-core>=2.27.0
+pydantic==2.9.2
+pydantic-settings==2.5.2
+pydantic-core==2.23.4
 
 # Document processing
 pypdf>=4.0.0
@@ -35,10 +30,10 @@ python-docx==1.1.2
 openpyxl==3.1.5
 pillow>=10.4.0
 
-# Pandas (Python 3.11.9 compatible)
+# Pandas (Python 3.13 compatible)
 pandas>=2.2.0
 
-# Numpy — Python 3.11.9 needs 2.x
+# Numpy — Python 3.13 needs 2.x
 numpy>=2.0.0
 
 # Anthropic (demo / cloud mode — use this instead of local LLM during dev)

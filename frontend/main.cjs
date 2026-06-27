@@ -1,6 +1,6 @@
 /**
- * IntelliLaw — Electron Main Process
- * Offline-first legal desktop application
+ * IntelliLaw — Electron Main Process  v1.1
+ * Fix: INTELLISCHOOL_SERVER_ONLY → INTELLILAW_SERVER_ONLY
  */
 
 const { app, BrowserWindow, shell, dialog, Menu } = require('electron')
@@ -25,12 +25,12 @@ const BACKEND_EXE = IS_WIN
 
 const ICON_PATH = path.join(__dirname, 'assets', 'icon.ico')
 
-let mainWindow  = null
-let backendProc = null
-let backendPort = 8000
+let mainWindow   = null
+let backendProc  = null
+let backendPort  = 8000
 let backendReady = false
 
-// Logging
+// ── Logging ───────────────────────────────────────────────────────
 const logDir = path.join(
   process.env.USERPROFILE || process.env.HOME || app.getPath('userData'),
   'IntelliLaw', 'logs'
@@ -44,7 +44,7 @@ function log(msg) {
   try { fs.appendFileSync(logFile, line + '\n') } catch (_) {}
 }
 
-// Port helpers
+// ── Port helpers ──────────────────────────────────────────────────
 function isPortFree(port) {
   return new Promise(resolve => {
     const s = net.createServer()
@@ -54,11 +54,11 @@ function isPortFree(port) {
   })
 }
 
-async function findFreePort(start = 8000, end = 8000) {
+async function findFreePort(start = 8000, end = 8100) {
   for (let p = start; p <= end; p++) {
     if (await isPortFree(p)) return p
   }
-  throw new Error(`No free port in ${start}-${end}`)
+  throw new Error(`No free port found in range ${start}-${end}`)
 }
 
 function waitForBackend(port, timeoutMs = 60000) {
@@ -71,7 +71,7 @@ function waitForBackend(port, timeoutMs = 60000) {
         `http://127.0.0.1:${port}/api/health`,
         { timeout: 2000 },
         res => {
-          if (res.statusCode === 200) { log(`Backend healthy on port ${port}`); resolve(port) }
+          if (res.statusCode === 200) { log(`Backend healthy on :${port}`); resolve(port) }
           else setTimeout(check, 1000)
           res.resume()
         }
@@ -83,9 +83,10 @@ function waitForBackend(port, timeoutMs = 60000) {
   })
 }
 
+// ── Backend ───────────────────────────────────────────────────────
 async function startBackend() {
   if (IS_DEV) {
-    log('[DEV] Waiting for FastAPI dev server on port 8000…')
+    log('[DEV] Waiting for FastAPI dev server on :8000')
     backendPort = 8000
     try { await waitForBackend(8000, 20000) } catch { log('[DEV] Backend not ready — opening UI anyway') }
     backendReady = true
@@ -93,17 +94,24 @@ async function startBackend() {
   }
 
   if (!fs.existsSync(BACKEND_EXE)) {
-    const msg = `Backend not found:\n${BACKEND_EXE}\n\nPlease reinstall IntelliLaw.`
-    dialog.showErrorBox('IntelliLaw — Launch Error', msg)
+    dialog.showErrorBox(
+      'IntelliLaw — Launch Error',
+      `Backend executable not found:\n${BACKEND_EXE}\n\nPlease reinstall IntelliLaw.`
+    )
     app.quit(); return
   }
 
-  backendPort = await findFreePort(8000, 8000)
-  log(`Using port ${backendPort}`)
+  backendPort = await findFreePort(8000, 8100)
+  log(`Starting backend on port ${backendPort}`)
 
   backendProc = spawn(BACKEND_EXE, [], {
-    env: { ...process.env, HOST: '0.0.0.0', PORT: String(backendPort),
-      CORS_ORIGINS: '*', INTELLISCHOOL_SERVER_ONLY: '1' },
+    env: {
+      ...process.env,
+      HOST: '0.0.0.0',
+      PORT: String(backendPort),
+      CORS_ORIGINS: '*',
+      INTELLILAW_SERVER_ONLY: '1',   // ← fixed (was INTELLISCHOOL_SERVER_ONLY)
+    },
     detached: false,
     windowsHide: true,
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -111,6 +119,7 @@ async function startBackend() {
 
   backendProc.stdout.on('data', d => log(`[py] ${d.toString().trim()}`))
   backendProc.stderr.on('data', d => log(`[py:err] ${d.toString().trim()}`))
+
   backendProc.on('error', err => {
     dialog.showErrorBox('IntelliLaw Error', `Could not start backend:\n${err.message}`)
     app.quit()
@@ -118,12 +127,14 @@ async function startBackend() {
   backendProc.on('exit', (code, signal) => {
     log(`[py] exited code=${code} signal=${signal}`)
     if (backendReady && mainWindow && !mainWindow.isDestroyed()) {
-      dialog.showErrorBox('IntelliLaw — Backend Stopped',
-        `Backend exited unexpectedly (code ${code}).\nLogs: ${logFile}`)
+      dialog.showErrorBox(
+        'IntelliLaw — Backend Stopped',
+        `The backend exited unexpectedly (code ${code}).\n\nLog: ${logFile}`
+      )
     }
   })
 
-  log('Waiting for backend…')
+  log('Waiting for backend to be ready...')
   await waitForBackend(backendPort, 60000)
   backendReady = true
 }
@@ -132,14 +143,16 @@ function stopBackend() {
   if (!backendProc || IS_DEV) return
   try {
     if (IS_WIN) execSync(`taskkill /PID ${backendProc.pid} /T /F`, { stdio: 'ignore' })
-    else backendProc.kill('SIGTERM')
+    else        backendProc.kill('SIGTERM')
   } catch (e) { log(`stopBackend: ${e.message}`) }
   backendProc = null
 }
 
+// ── Window ────────────────────────────────────────────────────────
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 1440, height: 900, minWidth: 1100, minHeight: 700,
+    width: 1440, height: 900,
+    minWidth: 1100, minHeight: 700,
     backgroundColor: '#0a0e1a',
     show: false,
     icon: fs.existsSync(ICON_PATH) ? ICON_PATH : undefined,
@@ -148,45 +161,62 @@ function createWindow() {
       contextIsolation: true,
       webSecurity: true,
       preload: fs.existsSync(path.join(__dirname, 'preload.js'))
-        ? path.join(__dirname, 'preload.js') : undefined,
+        ? path.join(__dirname, 'preload.js')
+        : undefined,
     },
     title: 'IntelliLaw',
   })
 
   Menu.setApplicationMenu(null)
-  const url = IS_DEV ? 'http://localhost:5174' : `http://127.0.0.1:${backendPort}`
+
+  const url = IS_DEV
+    ? 'http://localhost:5174'
+    : `http://127.0.0.1:${backendPort}`
+
   log(`Loading ${url}`)
   mainWindow.loadURL(url)
-  mainWindow.once('ready-to-show', () => { mainWindow.show(); log('Window shown') })
+
+  mainWindow.once('ready-to-show', () => {
+    mainWindow.show()
+    log('Window shown')
+  })
+
   mainWindow.webContents.setWindowOpenHandler(({ url: u }) => {
     if (u.startsWith('http://127.0.0.1') || u.startsWith('http://localhost'))
       return { action: 'allow' }
     shell.openExternal(u)
     return { action: 'deny' }
   })
+
   mainWindow.on('closed', () => { mainWindow = null })
 }
 
+// ── App lifecycle ─────────────────────────────────────────────────
 app.whenReady().then(async () => {
   log('='.repeat(50))
   log('  IntelliLaw Desktop v1.0.0')
   log(`  Mode: ${IS_DEV ? 'DEVELOPMENT' : 'PRODUCTION'}`)
+  log(`  Log:  ${logFile}`)
   log('='.repeat(50))
   try {
     await startBackend()
     createWindow()
   } catch (err) {
     log(`FATAL: ${err.message}`)
-    dialog.showErrorBox('IntelliLaw — Startup Failed', `${err.message}\n\nLog: ${logFile}`)
+    dialog.showErrorBox(
+      'IntelliLaw — Startup Failed',
+      `${err.message}\n\nFull log:\n${logFile}`
+    )
     app.quit()
   }
 })
 
 app.on('window-all-closed', () => { stopBackend(); app.quit() })
-app.on('before-quit', stopBackend)
-process.on('exit', stopBackend)
+app.on('before-quit',        stopBackend)
+process.on('exit',  stopBackend)
 process.on('SIGINT',  () => { stopBackend(); process.exit(0) })
 process.on('SIGTERM', () => { stopBackend(); process.exit(0) })
+
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0 && backendReady) createWindow()
 })

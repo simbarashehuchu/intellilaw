@@ -1,0 +1,5 @@
+{
+  "product":"IntelliLaw",
+  "build":"enterprise-v3",
+  "artifacts":["installer","checksum","report"]
+}
