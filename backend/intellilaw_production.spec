@@ -118,5 +118,5 @@ exe = EXE(
     target_arch="x86_64",
     codesign_identity=None,
     entitlements_file=None,
-    icon=str(BACKEND_DIR.parent / "frontend" / "assets" / "icon.ico"),
+    icon=str(BACKEND_DIR.parent / "frontend" / "assets" / "icon.ico") if (BACKEND_DIR.parent / "frontend" / "assets" / "icon.ico").exists() else None,
 )
