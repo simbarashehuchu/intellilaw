@@ -1,4 +1,93 @@
-IntelliLaw Build v2.2  27/06/2026 14:05:09.57 
+IntelliLaw Build v2.2  27/06/2026 14:10:04.34 
 Backend:  C:\Users\simba\Desktop\intellilaw\backend   
 Frontend: C:\Users\simba\Desktop\intellilaw\backend\..\frontend  
  
+Python 3.11 
+Node.js v24.16.0 
+npm 11.13.0 
+icon.ico missing  
+Pre-flight PASSED 
+Clean DONE 
+Requirement already satisfied: fastapi==0.115.0 in .\venv\Lib\site-packages (from -r C:\Users\simba\Desktop\intellilaw\backend\requirements.txt (line 5)) (0.115.0)
+Requirement already satisfied: uvicorn==0.30.6 in .\venv\Lib\site-packages (from uvicorn[standard]==0.30.6->-r C:\Users\simba\Desktop\intellilaw\backend\requirements.txt (line 6)) (0.30.6)
+Requirement already satisfied: python-multipart==0.0.12 in .\venv\Lib\site-packages (from -r C:\Users\simba\Desktop\intellilaw\backend\requirements.txt (line 7)) (0.0.12)
+Requirement already satisfied: starlette<0.41.0,>=0.37.2 in .\venv\Lib\site-packages (from -r C:\Users\simba\Desktop\intellilaw\backend\requirements.txt (line 8)) (0.38.6)
+Requirement already satisfied: python-jose==3.3.0 in .\venv\Lib\site-packages (from python-jose[cryptography]==3.3.0->-r C:\Users\simba\Desktop\intellilaw\backend\requirements.txt (line 11)) (3.3.0)
+Requirement already satisfied: passlib==1.7.4 in .\venv\Lib\site-packages (from passlib[bcrypt]==1.7.4->-r C:\Users\simba\Desktop\intellilaw\backend\requirements.txt (line 12)) (1.7.4)
+Requirement already satisfied: bcrypt==4.2.0 in .\venv\Lib\site-packages (from -r C:\Users\simba\Desktop\intellilaw\backend\requirements.txt (line 13)) (4.2.0)
+Requirement already satisfied: cryptography>=42.0.5 in .\venv\Lib\site-packages (from -r C:\Users\simba\Desktop\intellilaw\backend\requirements.txt (line 14)) (49.0.0)
+Requirement already satisfied: sqlalchemy==2.0.35 in .\venv\Lib\site-packages (from -r C:\Users\simba\Desktop\intellilaw\backend\requirements.txt (line 17)) (2.0.35)
+Requirement already satisfied: python-dotenv==1.0.1 in .\venv\Lib\site-packages (from -r C:\Users\simba\Desktop\intellilaw\backend\requirements.txt (line 26)) (1.0.1)
+Requirement already satisfied: pydantic>=2.10.0 in .\venv\Lib\site-packages (from -r C:\Users\simba\Desktop\intellilaw\backend\requirements.txt (line 27)) (2.13.4)
+Requirement already satisfied: pydantic-settings>=2.5.2 in .\venv\Lib\site-packages (from -r C:\Users\simba\Desktop\intellilaw\backend\requirements.txt (line 28)) (2.14.2)
+Requirement already satisfied: pydantic-core>=2.27.0 in .\venv\Lib\site-packages (from -r C:\Users\simba\Desktop\intellilaw\backend\requirements.txt (line 29)) (2.46.4)
+Requirement already satisfied: pypdf>=4.0.0 in .\venv\Lib\site-packages (from -r C:\Users\simba\Desktop\intellilaw\backend\requirements.txt (line 32)) (6.14.2)
+Requirement already satisfied: pdfplumber==0.10.4 in .\venv\Lib\site-packages (from -r C:\Users\simba\Desktop\intellilaw\backend\requirements.txt (line 33)) (0.10.4)
+Requirement already satisfied: python-docx==1.1.2 in .\venv\Lib\site-packages (from -r C:\Users\simba\Desktop\intellilaw\backend\requirements.txt (line 34)) (1.1.2)
+Requirement already satisfied: openpyxl==3.1.5 in .\venv\Lib\site-packages (from -r C:\Users\simba\Desktop\intellilaw\backend\requirements.txt (line 35)) (3.1.5)
+Requirement already satisfied: pillow>=10.4.0 in .\venv\Lib\site-packages (from -r C:\Users\simba\Desktop\intellilaw\backend\requirements.txt (line 36)) (12.2.0)
+Requirement already satisfied: pandas>=2.2.0 in .\venv\Lib\site-packages (from -r C:\Users\simba\Desktop\intellilaw\backend\requirements.txt (line 39)) (3.0.3)
+Requirement already satisfied: numpy>=2.0.0 in .\venv\Lib\site-packages (from -r C:\Users\simba\Desktop\intellilaw\backend\requirements.txt (line 42)) (2.5.0)
+Requirement already satisfied: anthropic>=0.40.0 in .\venv\Lib\site-packages (from -r C:\Users\simba\Desktop\intellilaw\backend\requirements.txt (line 45)) (0.112.0)
+Requirement already satisfied: requests==2.32.3 in .\venv\Lib\site-packages (from -r C:\Users\simba\Desktop\intellilaw\backend\requirements.txt (line 48)) (2.32.3)
+Requirement already satisfied: httpx>=0.27.0 in .\venv\Lib\site-packages (from -r C:\Users\simba\Desktop\intellilaw\backend\requirements.txt (line 49)) (0.28.1)
+Requirement already satisfied: aiofiles>=23.2.1 in .\venv\Lib\site-packages (from -r C:\Users\simba\Desktop\intellilaw\backend\requirements.txt (line 50)) (25.1.0)
+Requirement already satisfied: email-validator==2.2.0 in .\venv\Lib\site-packages (from -r C:\Users\simba\Desktop\intellilaw\backend\requirements.txt (line 53)) (2.2.0)
+Requirement already satisfied: pyotp==2.9.0 in .\venv\Lib\site-packages (from -r C:\Users\simba\Desktop\intellilaw\backend\requirements.txt (line 54)) (2.9.0)
+Requirement already satisfied: qrcode==7.4.2 in .\venv\Lib\site-packages (from qrcode[pil]==7.4.2->-r C:\Users\simba\Desktop\intellilaw\backend\requirements.txt (line 55)) (7.4.2)
+Requirement already satisfied: typing-extensions>=4.8.0 in .\venv\Lib\site-packages (from fastapi==0.115.0->-r C:\Users\simba\Desktop\intellilaw\backend\requirements.txt (line 5)) (4.15.0)
+Requirement already satisfied: click>=7.0 in .\venv\Lib\site-packages (from uvicorn==0.30.6->uvicorn[standard]==0.30.6->-r C:\Users\simba\Desktop\intellilaw\backend\requirements.txt (line 6)) (8.4.2)
+Requirement already satisfied: h11>=0.8 in .\venv\Lib\site-packages (from uvicorn==0.30.6->uvicorn[standard]==0.30.6->-r C:\Users\simba\Desktop\intellilaw\backend\requirements.txt (line 6)) (0.16.0)
+Requirement already satisfied: ecdsa!=0.15 in .\venv\Lib\site-packages (from python-jose==3.3.0->python-jose[cryptography]==3.3.0->-r C:\Users\simba\Desktop\intellilaw\backend\requirements.txt (line 11)) (0.19.2)
+Requirement already satisfied: rsa in .\venv\Lib\site-packages (from python-jose==3.3.0->python-jose[cryptography]==3.3.0->-r C:\Users\simba\Desktop\intellilaw\backend\requirements.txt (line 11)) (4.9.1)
+Requirement already satisfied: pyasn1 in .\venv\Lib\site-packages (from python-jose==3.3.0->python-jose[cryptography]==3.3.0->-r C:\Users\simba\Desktop\intellilaw\backend\requirements.txt (line 11)) (0.6.3)
+Requirement already satisfied: pdfminer.six==20221105 in .\venv\Lib\site-packages (from pdfplumber==0.10.4->-r C:\Users\simba\Desktop\intellilaw\backend\requirements.txt (line 33)) (20221105)
+Requirement already satisfied: pypdfium2>=4.18.0 in .\venv\Lib\site-packages (from pdfplumber==0.10.4->-r C:\Users\simba\Desktop\intellilaw\backend\requirements.txt (line 33)) (5.10.1)
+Requirement already satisfied: lxml>=3.1.0 in .\venv\Lib\site-packages (from python-docx==1.1.2->-r C:\Users\simba\Desktop\intellilaw\backend\requirements.txt (line 34)) (6.1.1)
+Requirement already satisfied: et-xmlfile in .\venv\Lib\site-packages (from openpyxl==3.1.5->-r C:\Users\simba\Desktop\intellilaw\backend\requirements.txt (line 35)) (2.0.0)
+Requirement already satisfied: charset-normalizer<4,>=2 in .\venv\Lib\site-packages (from requests==2.32.3->-r C:\Users\simba\Desktop\intellilaw\backend\requirements.txt (line 48)) (3.4.7)
+Requirement already satisfied: idna<4,>=2.5 in .\venv\Lib\site-packages (from requests==2.32.3->-r C:\Users\simba\Desktop\intellilaw\backend\requirements.txt (line 48)) (3.18)
+Requirement already satisfied: urllib3<3,>=1.21.1 in .\venv\Lib\site-packages (from requests==2.32.3->-r C:\Users\simba\Desktop\intellilaw\backend\requirements.txt (line 48)) (2.7.0)
+Requirement already satisfied: certifi>=2017.4.17 in .\venv\Lib\site-packages (from requests==2.32.3->-r C:\Users\simba\Desktop\intellilaw\backend\requirements.txt (line 48)) (2026.6.17)
+Requirement already satisfied: dnspython>=2.0.0 in .\venv\Lib\site-packages (from email-validator==2.2.0->-r C:\Users\simba\Desktop\intellilaw\backend\requirements.txt (line 53)) (2.8.0)
+Requirement already satisfied: pypng in .\venv\Lib\site-packages (from qrcode==7.4.2->qrcode[pil]==7.4.2->-r C:\Users\simba\Desktop\intellilaw\backend\requirements.txt (line 55)) (0.20220715.0)
+Requirement already satisfied: colorama in .\venv\Lib\site-packages (from qrcode==7.4.2->qrcode[pil]==7.4.2->-r C:\Users\simba\Desktop\intellilaw\backend\requirements.txt (line 55)) (0.4.6)
+Requirement already satisfied: httptools>=0.5.0 in .\venv\Lib\site-packages (from uvicorn[standard]==0.30.6->-r C:\Users\simba\Desktop\intellilaw\backend\requirements.txt (line 6)) (0.8.0)
+Requirement already satisfied: pyyaml>=5.1 in .\venv\Lib\site-packages (from uvicorn[standard]==0.30.6->-r C:\Users\simba\Desktop\intellilaw\backend\requirements.txt (line 6)) (6.0.3)
+Requirement already satisfied: watchfiles>=0.13 in .\venv\Lib\site-packages (from uvicorn[standard]==0.30.6->-r C:\Users\simba\Desktop\intellilaw\backend\requirements.txt (line 6)) (1.2.0)
+Requirement already satisfied: websockets>=10.4 in .\venv\Lib\site-packages (from uvicorn[standard]==0.30.6->-r C:\Users\simba\Desktop\intellilaw\backend\requirements.txt (line 6)) (16.0)
+Requirement already satisfied: anyio<5,>=3.4.0 in .\venv\Lib\site-packages (from starlette<0.41.0,>=0.37.2->-r C:\Users\simba\Desktop\intellilaw\backend\requirements.txt (line 8)) (4.14.1)
+Requirement already satisfied: annotated-types>=0.6.0 in .\venv\Lib\site-packages (from pydantic>=2.10.0->-r C:\Users\simba\Desktop\intellilaw\backend\requirements.txt (line 27)) (0.7.0)
+Requirement already satisfied: typing-inspection>=0.4.2 in .\venv\Lib\site-packages (from pydantic>=2.10.0->-r C:\Users\simba\Desktop\intellilaw\backend\requirements.txt (line 27)) (0.4.2)
+Requirement already satisfied: cffi>=2.0.0 in .\venv\Lib\site-packages (from cryptography>=42.0.5->-r C:\Users\simba\Desktop\intellilaw\backend\requirements.txt (line 14)) (2.0.0)
+Requirement already satisfied: python-dateutil>=2.8.2 in .\venv\Lib\site-packages (from pandas>=2.2.0->-r C:\Users\simba\Desktop\intellilaw\backend\requirements.txt (line 39)) (2.9.0.post0)
+Requirement already satisfied: tzdata in .\venv\Lib\site-packages (from pandas>=2.2.0->-r C:\Users\simba\Desktop\intellilaw\backend\requirements.txt (line 39)) (2026.2)
+Requirement already satisfied: distro<2,>=1.7.0 in .\venv\Lib\site-packages (from anthropic>=0.40.0->-r C:\Users\simba\Desktop\intellilaw\backend\requirements.txt (line 45)) (1.9.0)
+Requirement already satisfied: docstring-parser<1,>=0.15 in .\venv\Lib\site-packages (from anthropic>=0.40.0->-r C:\Users\simba\Desktop\intellilaw\backend\requirements.txt (line 45)) (0.18.0)
+Requirement already satisfied: jiter<1,>=0.4.0 in .\venv\Lib\site-packages (from anthropic>=0.40.0->-r C:\Users\simba\Desktop\intellilaw\backend\requirements.txt (line 45)) (0.15.0)
+Requirement already satisfied: sniffio in .\venv\Lib\site-packages (from anthropic>=0.40.0->-r C:\Users\simba\Desktop\intellilaw\backend\requirements.txt (line 45)) (1.3.1)
+Requirement already satisfied: httpcore==1.* in .\venv\Lib\site-packages (from httpx>=0.27.0->-r C:\Users\simba\Desktop\intellilaw\backend\requirements.txt (line 49)) (1.0.9)
+Requirement already satisfied: pycparser in .\venv\Lib\site-packages (from cffi>=2.0.0->cryptography>=42.0.5->-r C:\Users\simba\Desktop\intellilaw\backend\requirements.txt (line 14)) (3.0)
+Requirement already satisfied: six>=1.9.0 in .\venv\Lib\site-packages (from ecdsa!=0.15->python-jose==3.3.0->python-jose[cryptography]==3.3.0->-r C:\Users\simba\Desktop\intellilaw\backend\requirements.txt (line 11)) (1.17.0)
+Python deps DONE 
+.env written 
+main.cjs patched 
+
+up to date in 5s
+
+> intellilaw-desktop@1.0.0 build
+> vite build
+
+[36mvite v5.4.21 [32mbuilding for production...[36m[39m
+transforming...
+[32m✓[39m 84 modules transformed.
+rendering chunks...
+computing gzip size...
+[2mdist/[22m[32mindex.html                       [39m[1m[2m  1.14 kB[22m[1m[22m[2m │ gzip:  0.52 kB[22m
+[2mdist/[22m[35massets/index-CoDuv5uL.css        [39m[1m[2m  1.75 kB[22m[1m[22m[2m │ gzip:  0.82 kB[22m
+[2mdist/[22m[36massets/react-vendor-C_Lt4Y9Q.js  [39m[1m[2m  0.03 kB[22m[1m[22m[2m │ gzip:  0.05 kB[22m
+[2mdist/[22m[36massets/index-Bo_YbQR_.js         [39m[1m[2m185.56 kB[22m[1m[22m[2m │ gzip: 42.79 kB[22m
+[2mdist/[22m[36massets/vendor-Dq4TxVjM.js        [39m[1m[2m214.46 kB[22m[1m[22m[2m │ gzip: 69.43 kB[22m
+[32m✓ built in 9.57s[39m
+Vite DONE 
+PyInstaller START 

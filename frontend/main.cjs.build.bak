@@ -1,6 +1,6 @@
 /**
  * IntelliLaw — Electron Main Process  v1.1
- * Fix: INTELLILAW_SERVER_ONLY → INTELLILAW_SERVER_ONLY
+ * Fix: INTELLISCHOOL_SERVER_ONLY → INTELLILAW_SERVER_ONLY
  */
 
 const { app, BrowserWindow, shell, dialog, Menu } = require('electron')
@@ -110,7 +110,7 @@ async function startBackend() {
       HOST: '0.0.0.0',
       PORT: String(backendPort),
       CORS_ORIGINS: '*',
-      INTELLILAW_SERVER_ONLY: '1',   // ← fixed (was INTELLILAW_SERVER_ONLY)
+      INTELLILAW_SERVER_ONLY: '1',   // ← fixed (was INTELLISCHOOL_SERVER_ONLY)
     },
     detached: false,
     windowsHide: true,

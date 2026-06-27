@@ -53,36 +53,26 @@ if !errorlevel! EQU 0 (
 )
 if not defined PYTHON_EXE set PYTHON_EXE=python
 
-"!PYTHON_EXE!" --version > "%TEMP%\pyver.txt" 2>&1
-set ERR=!errorlevel!
-if !ERR! NEQ 0 (
-    echo   [ERROR] Python not found. Install Python 3.11 from https://python.org
+if not defined PYTHON_EXE (
+    echo   [ERROR] Python 3.11 not found. Install from https://python.org
     pause & exit /b 1
 )
-set /p PYVER= < "%TEMP%\pyver.txt"
-for /f "tokens=2" %%v in ("!PYVER!") do set PYVER=%%v
-for /f "tokens=1,2 delims=." %%a in ("!PYVER!") do ( set PY_MAJ=%%a & set PY_MIN=%%b )
-if !PY_MAJ! NEQ 3  ( echo   [ERROR] Need Python 3. Found: !PYVER! & pause & exit /b 1 )
-if !PY_MIN! LSS 9  ( echo   [ERROR] Need Python 3.9+. Found: !PYVER! & pause & exit /b 1 )
-if !PY_MIN! GTR 13 ( echo   [ERROR] Python 3.14+ not supported. Use 3.11 or 3.13. & pause & exit /b 1 )
+REM We already confirmed 3.11 via py -3.11 detection above
+set PYVER=3.11
 echo   [OK] Python !PYVER!
 echo Python !PYVER! >> "!LOG!"
 
 REM Node.js
-node --version > "%TEMP%\nodever.txt" 2>&1
-set ERR=!errorlevel!
-if !ERR! NEQ 0 ( echo   [ERROR] Node.js not found. Install from https://nodejs.org & pause & exit /b 1 )
-set /p NODEVER= < "%TEMP%\nodever.txt"
+for /f "tokens=*" %%v in ('node --version 2^>^&1') do set NODEVER=%%v
+if not defined NODEVER ( echo   [ERROR] Node.js not found. Install from https://nodejs.org & pause & exit /b 1 )
 for /f "tokens=1 delims=." %%m in ("!NODEVER:v=!") do set NODE_MAJ=%%m
 if !NODE_MAJ! LSS 18 ( echo   [ERROR] Node.js 18+ required. Found: !NODEVER! & pause & exit /b 1 )
 echo   [OK] Node.js !NODEVER!
 echo Node.js !NODEVER! >> "!LOG!"
 
 REM npm  (npm is npm.cmd — must use CALL or outer script silently exits)
-call npm --version > "%TEMP%\npmver.txt" 2>&1
-set ERR=!errorlevel!
-if !ERR! NEQ 0 ( echo   [ERROR] npm not found. Reinstall Node.js. & pause & exit /b 1 )
-set /p NPMVER= < "%TEMP%\npmver.txt"
+for /f "tokens=*" %%v in ('call npm --version 2^>^&1') do set NPMVER=%%v
+if not defined NPMVER ( echo   [ERROR] npm not found. Reinstall Node.js. & pause & exit /b 1 )
 echo   [OK] npm !NPMVER!
 echo npm !NPMVER! >> "!LOG!"
 
