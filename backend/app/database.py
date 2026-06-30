@@ -3,6 +3,7 @@ Database Configuration — IntelliLaw
 Tenant-aware, offline-first, SQLite with encryption (SQLCipher)
 """
 import os
+import sys
 import logging
 import secrets
 from pathlib import Path
@@ -53,7 +54,11 @@ def get_encryption_key() -> str:
 
     Returns: 64-character hex string (256-bit key for AES-256)
     """
-    env_file = Path(__file__).parent.parent / ".env"
+    if getattr(sys, "frozen", False):
+        firm_id = os.getenv("FIRM_ID", "default")
+        env_file = Path.home() / "IntelliLaw" / "firms" / firm_id / ".env"
+    else:
+        env_file = Path(__file__).parent.parent / ".env"
 
     # Reload .env to get latest values
     load_dotenv(env_file, override=True)

@@ -2524,7 +2524,8 @@ def get_activity_actions(
 
 def setup_frontend_serving():
     if getattr(sys, "frozen", False):
-        frontend_dir = Path(sys._MEIPASS) / "frontend"
+        # Spec bundles (frontend/dist, "frontend/dist") → _MEIPASS/frontend/dist/
+        frontend_dir = Path(sys._MEIPASS) / "frontend" / "dist"
     else:
         frontend_dir = Path(__file__).parents[2] / "frontend" / "dist"
 
@@ -2533,3 +2534,6 @@ def setup_frontend_serving():
         logger.info(f"Frontend served from: {frontend_dir}")
     else:
         logger.warning(f"Frontend dist not found at {frontend_dir}")
+
+
+setup_frontend_serving()
