@@ -257,3 +257,12 @@ PyInstaller DONE
   • signing with signtool.exe  path=release\win-unpacked\IntelliLaw.exe
   • no signing info identified, signing is skipped  signHook=false cscInfo=null
   • building        target=nsis file=release\IntelliLaw Setup 1.0.0.exe archs=x64 oneClick=false perMachine=false
+  • signing with signtool.exe  path=release\win-unpacked\resources\elevate.exe
+  • no signing info identified, signing is skipped  signHook=false cscInfo=null
+  • signing with signtool.exe  path=release\__uninstaller-nsis-intellilaw-desktop.exe
+  • no signing info identified, signing is skipped  signHook=false cscInfo=null
+  • signing with signtool.exe  path=release\IntelliLaw Setup 1.0.0.exe
+  • no signing info identified, signing is skipped  signHook=false cscInfo=null
+  • building block map  blockMapFile=release\IntelliLaw Setup 1.0.0.exe.blockmap
+Dev files restored 
+BUILD COMPLETE  C:\Users\simba\Desktop\intellilaw\backend\..\frontend\release\IntelliLaw  ( MB) 
