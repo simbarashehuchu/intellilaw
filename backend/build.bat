@@ -147,6 +147,11 @@ call pip install "pyinstaller>=6.4,<7" --quiet >> "!LOG!" 2>&1
 set ERR=!errorlevel!
 if !ERR! NEQ 0 ( echo   [ERROR] PyInstaller install failed & goto :show_tail_and_fail )
 
+echo   pip install llama-cpp-python (offline AI)...
+call pip install "llama-cpp-python==0.3.0" --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu --quiet >> "!LOG!" 2>&1
+set ERR=!errorlevel!
+if !ERR! NEQ 0 ( echo   [ERROR] llama-cpp-python install failed & goto :show_tail_and_fail )
+
 echo   pip install pywebview...
 call pip install pywebview==4.4.1 --quiet >> "!LOG!" 2>&1
 set ERR=!errorlevel!
@@ -259,7 +264,7 @@ if exist "!DIST_DIR!\IntelliLaw\" (
 ) else (
     copy "!BACKEND_EXE!" "!BACKEND_DIST!\IntelliLaw-backend.exe" >nul
 )
-echo   [OK] Backend built  ->  backend-dist\IntelliLaw-backend.exe
+echo   [OK] Backend built  in  backend-dist\IntelliLaw-backend.exe
 echo PyInstaller DONE >> "!LOG!"
 
 REM ================================================================

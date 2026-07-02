@@ -1,0 +1,151 @@
+453 INFO: PyInstaller: 6.21.0, contrib hooks: 2026.6
+454 INFO: Python: 3.13.9
+522 INFO: Platform: Windows-11-10.0.26100-SP0
+522 INFO: Python environment: C:\Users\simba\Desktop\intellilaw\backend\venv
+1679 INFO: Module search paths (PYTHONPATH):
+['C:\\Users\\simba\\Desktop\\intellilaw\\backend\\venv\\Scripts\\pyinstaller.exe',
+ 'C:\\Users\\simba\\AppData\\Local\\Programs\\Python\\Python313\\python313.zip',
+ 'C:\\Users\\simba\\AppData\\Local\\Programs\\Python\\Python313\\DLLs',
+ 'C:\\Users\\simba\\AppData\\Local\\Programs\\Python\\Python313\\Lib',
+ 'C:\\Users\\simba\\AppData\\Local\\Programs\\Python\\Python313',
+ 'C:\\Users\\simba\\Desktop\\intellilaw\\backend\\venv',
+ 'C:\\Users\\simba\\Desktop\\intellilaw\\backend\\venv\\Lib\\site-packages',
+ 'C:\\Users\\simba\\Desktop\\intellilaw\\backend']
+3149 INFO: Appending 'datas' from .spec
+3152 INFO: checking Analysis
+3353 INFO: Building because hiddenimports changed
+3353 INFO: Looking for Python shared library...
+3354 INFO: Using Python shared library: C:\Users\simba\AppData\Local\Programs\Python\Python313\python313.dll
+3354 INFO: Running Analysis Analysis-00.toc
+3354 INFO: Target bytecode optimization level: 0
+3354 INFO: Initializing module dependency graph...
+3357 INFO: Initializing module graph hook caches...
+3410 INFO: Analyzing modules for base_library.zip ...
+9316 INFO: Processing standard module hook 'hook-encodings.py' from 'C:\\Users\\simba\\Desktop\\intellilaw\\backend\\venv\\Lib\\site-packages\\PyInstaller\\hooks'
+10639 INFO: Processing standard module hook 'hook-math.py' from 'C:\\Users\\simba\\Desktop\\intellilaw\\backend\\venv\\Lib\\site-packages\\PyInstaller\\hooks'
+15714 INFO: Processing standard module hook 'hook-pickle.py' from 'C:\\Users\\simba\\Desktop\\intellilaw\\backend\\venv\\Lib\\site-packages\\PyInstaller\\hooks'
+19663 INFO: Processing standard module hook 'hook-heapq.py' from 'C:\\Users\\simba\\Desktop\\intellilaw\\backend\\venv\\Lib\\site-packages\\PyInstaller\\hooks'
+20850 INFO: Caching module dependency graph...
+20960 INFO: Analyzing C:\Users\simba\Desktop\intellilaw\backend\launcher.py
+21071 INFO: Processing standard module hook 'hook-uvicorn.py' from 'C:\\Users\\simba\\Desktop\\intellilaw\\backend\\venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+22648 INFO: Processing standard module hook 'hook-multiprocessing.util.py' from 'C:\\Users\\simba\\Desktop\\intellilaw\\backend\\venv\\Lib\\site-packages\\PyInstaller\\hooks'
+23291 INFO: Processing standard module hook 'hook-xml.py' from 'C:\\Users\\simba\\Desktop\\intellilaw\\backend\\venv\\Lib\\site-packages\\PyInstaller\\hooks'
+24042 INFO: Processing standard module hook 'hook-_ctypes.py' from 'C:\\Users\\simba\\Desktop\\intellilaw\\backend\\venv\\Lib\\site-packages\\PyInstaller\\hooks'
+26098 INFO: Processing standard module hook 'hook-platform.py' from 'C:\\Users\\simba\\Desktop\\intellilaw\\backend\\venv\\Lib\\site-packages\\PyInstaller\\hooks'
+26198 INFO: Processing pre-safe-import-module hook 'hook-typing_extensions.py' from 'C:\\Users\\simba\\Desktop\\intellilaw\\backend\\venv\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+26201 INFO: SetuptoolsInfo: initializing cached setuptools info...
+26796 WARNING: SetuptoolsInfo: failed to obtain setuptools info: Child process call to _retrieve_setuptools_info() failed with:
+  File "C:\Users\simba\Desktop\intellilaw\backend\venv\Lib\site-packages\PyInstaller\isolated\_child.py", line 63, in run_next_command
+    output = function(*args, **kwargs)
+  File "C:\Users\simba\Desktop\intellilaw\backend\venv\Lib\site-packages\PyInstaller\utils\hooks\setuptools.py", line 24, in _retrieve_setuptools_info
+    setuptools = importlib.import_module("setuptools")  # noqa: F841
+  File "C:\Users\simba\AppData\Local\Programs\Python\Python313\Lib\importlib\__init__.py", line 88, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<frozen importlib._bootstrap>", line 1387, in _gcd_import
+  File "<frozen importlib._bootstrap>", line 1360, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 1331, in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 935, in _load_unlocked
+  File "<frozen importlib._bootstrap_external>", line 1027, in exec_module
+  File "<frozen importlib._bootstrap>", line 488, in _call_with_frames_removed
+  File "C:\Users\simba\Desktop\intellilaw\backend\venv\Lib\site-packages\setuptools\__init__.py", line 16, in <module>
+    import setuptools.version
+  File "C:\Users\simba\Desktop\intellilaw\backend\venv\Lib\site-packages\setuptools\version.py", line 1, in <module>
+    import pkg_resources
+  File "C:\Users\simba\Desktop\intellilaw\backend\venv\Lib\site-packages\pkg_resources\__init__.py", line 2191, in <module>
+    register_finder(pkgutil.ImpImporter, find_on_path)
+                    ^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'pkgutil' has no attribute 'ImpImporter'. Did you mean: 'zipimporter'?
+27421 INFO: Processing standard module hook 'hook-difflib.py' from 'C:\\Users\\simba\\Desktop\\intellilaw\\backend\\venv\\Lib\\site-packages\\PyInstaller\\hooks'
+27793 INFO: Processing standard module hook 'hook-webbrowser.py' from 'C:\\Users\\simba\\Desktop\\intellilaw\\backend\\venv\\Lib\\site-packages\\PyInstaller\\hooks'
+29537 INFO: Processing standard module hook 'hook-websockets.py' from 'C:\\Users\\simba\\Desktop\\intellilaw\\backend\\venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+34787 INFO: Processing standard module hook 'hook-anyio.py' from 'C:\\Users\\simba\\Desktop\\intellilaw\\backend\\venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+37517 INFO: Analyzing hidden import 'uvicorn.loops'
+37519 INFO: Analyzing hidden import 'uvicorn.loops.auto'
+37553 INFO: Analyzing hidden import 'uvicorn.protocols.http.auto'
+37559 INFO: Analyzing hidden import 'uvicorn.protocols.websockets.auto'
+37591 INFO: Analyzing hidden import 'uvicorn.lifespan'
+37592 INFO: Analyzing hidden import 'uvicorn.lifespan.on'
+37618 INFO: Analyzing hidden import 'starlette.routing'
+38264 INFO: Analyzing hidden import 'fastapi.routing'
+38865 INFO: Processing standard module hook 'hook-pydantic.py' from 'C:\\Users\\simba\\Desktop\\intellilaw\\backend\\venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+41421 INFO: Processing standard module hook 'hook-zoneinfo.py' from 'C:\\Users\\simba\\Desktop\\intellilaw\\backend\\venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+41498 INFO: Processing standard module hook 'hook-sysconfig.py' from 'C:\\Users\\simba\\Desktop\\intellilaw\\backend\\venv\\Lib\\site-packages\\PyInstaller\\hooks'
+42876 INFO: Processing standard module hook 'hook-certifi.py' from 'C:\\Users\\simba\\Desktop\\intellilaw\\backend\\venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+45610 INFO: Processing standard module hook 'hook-dns.rdata.py' from 'C:\\Users\\simba\\Desktop\\intellilaw\\backend\\venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+51557 INFO: Analyzing hidden import 'sqlalchemy.dialects.sqlite'
+51578 INFO: Processing standard module hook 'hook-sqlalchemy.py' from 'C:\\Users\\simba\\Desktop\\intellilaw\\backend\\venv\\Lib\\site-packages\\PyInstaller\\hooks'
+53585 INFO: Processing pre-safe-import-module hook 'hook-importlib_metadata.py' from 'C:\\Users\\simba\\Desktop\\intellilaw\\backend\\venv\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+66373 INFO: Processing standard module hook 'hook-sqlite3.py' from 'C:\\Users\\simba\\Desktop\\intellilaw\\backend\\venv\\Lib\\site-packages\\PyInstaller\\hooks'
+67250 INFO: Analyzing hidden import 'app.main'
+67841 INFO: Processing standard module hook 'hook-PIL.py' from 'C:\\Users\\simba\\Desktop\\intellilaw\\backend\\venv\\Lib\\site-packages\\PyInstaller\\hooks'
+68364 INFO: Processing standard module hook 'hook-PIL.Image.py' from 'C:\\Users\\simba\\Desktop\\intellilaw\\backend\\venv\\Lib\\site-packages\\PyInstaller\\hooks'
+69645 INFO: Processing standard module hook 'hook-numpy.py' from 'C:\\Users\\simba\\Desktop\\intellilaw\\backend\\venv\\Lib\\site-packages\\PyInstaller\\hooks'
+77976 INFO: Processing standard module hook 'hook-charset_normalizer.py' from 'C:\\Users\\simba\\Desktop\\intellilaw\\backend\\venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+80768 INFO: Processing standard module hook 'hook-xml.etree.cElementTree.py' from 'C:\\Users\\simba\\Desktop\\intellilaw\\backend\\venv\\Lib\\site-packages\\PyInstaller\\hooks'
+81980 INFO: Processing standard module hook 'hook-PIL.ImageFilter.py' from 'C:\\Users\\simba\\Desktop\\intellilaw\\backend\\venv\\Lib\\site-packages\\PyInstaller\\hooks'
+85951 INFO: Processing standard module hook 'hook-cryptography.py' from 'C:\\Users\\simba\\Desktop\\intellilaw\\backend\\venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+90026 INFO: hook-cryptography: cryptography does not seem to be using dynamically linked OpenSSL.
+90678 INFO: Processing standard module hook 'hook-bcrypt.py' from 'C:\\Users\\simba\\Desktop\\intellilaw\\backend\\venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+92002 INFO: Processing pre-safe-import-module hook 'hook-six.moves.py' from 'C:\\Users\\simba\\Desktop\\intellilaw\\backend\\venv\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+94226 INFO: Processing standard module hook 'hook-passlib.py' from 'C:\\Users\\simba\\Desktop\\intellilaw\\backend\\venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+103933 INFO: Processing standard module hook 'hook-urllib3.py' from 'C:\\Users\\simba\\Desktop\\intellilaw\\backend\\venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+104452 INFO: Processing pre-safe-import-module hook 'hook-backports.py' from 'C:\\Users\\simba\\Desktop\\intellilaw\\backend\\venv\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+106558 INFO: Processing standard module hook 'hook-jinja2.py' from 'C:\\Users\\simba\\Desktop\\intellilaw\\backend\\venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+109824 INFO: Processing standard module hook 'hook-xml.dom.domreg.py' from 'C:\\Users\\simba\\Desktop\\intellilaw\\backend\\venv\\Lib\\site-packages\\PyInstaller\\hooks'
+112037 INFO: Processing standard module hook 'hook-docx.py' from 'C:\\Users\\simba\\Desktop\\intellilaw\\backend\\venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+112281 INFO: Processing standard module hook 'hook-lxml.py' from 'C:\\Users\\simba\\Desktop\\intellilaw\\backend\\venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+113164 INFO: Processing standard module hook 'hook-lxml.etree.py' from 'C:\\Users\\simba\\Desktop\\intellilaw\\backend\\venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+114272 INFO: Analyzing hidden import 'passlib.handlers.bcrypt'
+114505 INFO: Analyzing hidden import 'passlib.handlers.pbkdf2'
+114522 INFO: Analyzing hidden import 'pdfplumber'
+114526 INFO: Processing standard module hook 'hook-pdfminer.py' from 'C:\\Users\\simba\\Desktop\\intellilaw\\backend\\venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+116041 INFO: Processing standard module hook 'hook-pandas.py' from 'C:\\Users\\simba\\Desktop\\intellilaw\\backend\\venv\\Lib\\site-packages\\PyInstaller\\hooks'
+123532 INFO: Processing standard module hook 'hook-pandas.io.formats.style.py' from 'C:\\Users\\simba\\Desktop\\intellilaw\\backend\\venv\\Lib\\site-packages\\PyInstaller\\hooks'
+131002 INFO: Processing standard module hook 'hook-pandas.plotting.py' from 'C:\\Users\\simba\\Desktop\\intellilaw\\backend\\venv\\Lib\\site-packages\\PyInstaller\\hooks'
+132765 INFO: Processing standard module hook 'hook-dateutil.py' from 'C:\\Users\\simba\\Desktop\\intellilaw\\backend\\venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+134971 INFO: Processing standard module hook 'hook-openpyxl.py' from 'C:\\Users\\simba\\Desktop\\intellilaw\\backend\\venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+140081 INFO: Processing standard module hook 'hook-pandas.io.clipboard.py' from 'C:\\Users\\simba\\Desktop\\intellilaw\\backend\\venv\\Lib\\site-packages\\PyInstaller\\hooks'
+142025 INFO: Processing standard module hook 'hook-pypdfium2.py' from 'C:\\Users\\simba\\Desktop\\intellilaw\\backend\\venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+142062 INFO: Processing standard module hook 'hook-pypdfium2_raw.py' from 'C:\\Users\\simba\\Desktop\\intellilaw\\backend\\venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+142899 INFO: Analyzing hidden import 'aiofiles'
+142947 INFO: Processing module hooks (post-graph stage)...
+143987 INFO: Processing standard module hook 'hook-lxml.isoschematron.py' from 'C:\\Users\\simba\\Desktop\\intellilaw\\backend\\venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+144258 INFO: Processing pre-safe-import-module hook 'hook-tomli.py' from 'C:\\Users\\simba\\Desktop\\intellilaw\\backend\\venv\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+145190 INFO: Processing standard module hook 'hook-PIL.SpiderImagePlugin.py' from 'C:\\Users\\simba\\Desktop\\intellilaw\\backend\\venv\\Lib\\site-packages\\PyInstaller\\hooks'
+145305 INFO: Processing standard module hook 'hook-sqlalchemy.py' from 'C:\\Users\\simba\\Desktop\\intellilaw\\backend\\venv\\Lib\\site-packages\\PyInstaller\\hooks'
+146445 WARNING: Hidden import "pysqlite2" not found!
+146446 WARNING: Hidden import "MySQLdb" not found!
+146447 WARNING: Hidden import "psycopg2" not found!
+148545 INFO: Processing standard module hook 'hook-lxml.objectify.py' from 'C:\\Users\\simba\\Desktop\\intellilaw\\backend\\venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+148548 INFO: Processing standard module hook 'hook-tzdata.py' from 'C:\\Users\\simba\\Desktop\\intellilaw\\backend\\venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+149832 INFO: Performing binary vs. data reclassification (826 entries)
+150023 INFO: Looking for ctypes DLLs
+150347 INFO: Analyzing run-time hooks ...
+150367 INFO: Including run-time hook 'pyi_rth_pkgutil.py' from 'C:\\Users\\simba\\Desktop\\intellilaw\\backend\\venv\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks'
+150372 INFO: Including run-time hook 'pyi_rth_multiprocessing.py' from 'C:\\Users\\simba\\Desktop\\intellilaw\\backend\\venv\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks'
+150378 INFO: Including run-time hook 'pyi_rth_inspect.py' from 'C:\\Users\\simba\\Desktop\\intellilaw\\backend\\venv\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks'
+150385 INFO: Including run-time hook 'pyi_rth_cryptography_openssl.py' from 'C:\\Users\\simba\\Desktop\\intellilaw\\backend\\venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\rthooks'
+150509 INFO: Creating base_library.zip...
+150575 INFO: Looking for dynamic libraries
+161867 INFO: Extra DLL search directories (AddDllDirectory): ['C:\\Users\\simba\\Desktop\\intellilaw\\backend\\venv\\Lib\\site-packages\\numpy.libs', 'C:\\Users\\simba\\Desktop\\intellilaw\\backend\\venv\\Lib\\site-packages\\pandas.libs', 'C:\\Users\\simba\\Desktop\\intellilaw\\backend\\venv\\Lib\\site-packages\\llama_cpp\\lib', 'C:\\Users\\simba\\Desktop\\intellilaw\\backend\\venv\\Lib\\site-packages\\llama_cpp\\lib']
+161867 INFO: Extra DLL search directories (PATH): []
+164324 INFO: Warnings written to C:\Users\simba\Desktop\intellilaw\backend\build\intellilaw_production\warn-intellilaw_production.txt
+165089 INFO: Graph cross-reference written to C:\Users\simba\Desktop\intellilaw\backend\build\intellilaw_production\xref-intellilaw_production.html
+165521 INFO: checking PYZ
+165846 INFO: checking PKG
+165913 INFO: Building because toc changed
+165913 INFO: Building PKG (CArchive) IntelliLaw-backend.pkg
+194095 INFO: Building PKG (CArchive) IntelliLaw-backend.pkg completed successfully.
+194139 INFO: Bootloader C:\Users\simba\Desktop\intellilaw\backend\venv\Lib\site-packages\PyInstaller\bootloader\Windows-64bit-intel\run.exe
+194139 INFO: checking EXE
+194140 INFO: Building EXE because EXE-00.toc is non existent
+194140 INFO: Building EXE from EXE-00.toc
+194152 INFO: Copying bootloader EXE to C:\Users\simba\Desktop\intellilaw\backend\dist\IntelliLaw-backend.exe
+194330 INFO: Copying icon to EXE
+194455 INFO: Copying 0 resources to EXE
+194455 INFO: Embedding manifest in EXE
+194572 INFO: Appending PKG archive to EXE
+194731 INFO: Fixing EXE headers
+195997 INFO: Building EXE from EXE-00.toc completed successfully.
+196086 INFO: Build complete! The results are available in: C:\Users\simba\Desktop\intellilaw\backend\dist

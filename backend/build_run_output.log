@@ -1,0 +1,56 @@
+
+================================================================
+  IntelliLaw v1.0.0  —  Production Build
+================================================================
+  Log: c:\Users\simba\Desktop\intellilaw\backend\build_output.log
+
+[1/6] Pre-flight checks...
+  [INFO] Using Python 3.11: C:\Users\simba\AppData\Local\Programs\Python\Python311\python.exe
+  [OK] Python 3.11
+  [OK] Node.js v24.16.0
+  [OK] npm 11.13.0
+  [OK] All required files present
+
+[2/6] Cleaning previous build...
+  [OK] Clean complete
+
+[3/6] Python environment...
+  pip upgrade...
+  pip install requirements (may take a few minutes)...
+  pip install PyInstaller...
+  pip install pywebview...
+  [OK] Python environment ready
+
+[4a/6] Generating production .env...
+  [OK] Production .env written
+  Patching main.cjs...
+  [OK] main.cjs patched
+
+[5a/6] Building React frontend (Vite)...
+  npm install...
+  npm run build...
+  [OK] Frontend built
+
+[5b/6] Building Python backend with PyInstaller (3-8 min)...
+
+[6/6] Building Electron installer (NSIS 2-5 min)...
+Missing operand.
+
+================================================================
+  BUILD SUCCESSFUL
+================================================================
+
+  Installer : c:\Users\simba\Desktop\intellilaw\backend\..\frontend\release\IntelliLaw
+  Size      : ~ MB
+  Log       : c:\Users\simba\Desktop\intellilaw\backend\build_output.log
+
+  BEFORE DISTRIBUTING
+  1. Edit backend\.env  >  change DEFAULT_ADMIN_PASSWORD
+  2. Set FIRM_ID to a unique code for each client firm
+  3. Store the DB_ENCRYPTION_KEY from .env in a safe place
+  4. Copy the .gguf AI model to the target PC:
+     %USERPROFILE%\IntelliLaw\firms\<FIRM_ID>\models\
+
+  Default login:  admin  /  Admin123
+
+Press any key to continue . . . 

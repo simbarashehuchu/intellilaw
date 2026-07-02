@@ -9,6 +9,18 @@ FRONTEND_DIST = BACKEND_DIR.parent / "frontend" / "dist"
 
 block_cipher = None
 
+_llama_cpp_datas = []
+try:
+    import llama_cpp
+    _llama_lib_dir = Path(llama_cpp.__file__).parent / "lib"
+    if _llama_lib_dir.exists():
+        # llama_cpp locates its DLLs at runtime via Path(__file__).parent / "lib" —
+        # PyInstaller's default binary handling flattens DLLs, which breaks that lookup,
+        # so the "lib" subfolder must be preserved explicitly as datas.
+        _llama_cpp_datas = [(str(_llama_lib_dir), "llama_cpp/lib")]
+except ImportError:
+    pass
+
 a = Analysis(
     [str(BACKEND_DIR / "launcher.py")],
     pathex=[str(BACKEND_DIR)],
@@ -18,7 +30,7 @@ a = Analysis(
         (str(FRONTEND_DIST), "frontend/dist"),
         # .env.example as a template for first-run key generation
         (str(BACKEND_DIR / ".env.example"), "."),
-    ],
+    ] + _llama_cpp_datas,
     hiddenimports=[
         # FastAPI / Starlette internals
         "uvicorn.logging",
@@ -53,6 +65,8 @@ a = Analysis(
         "app.demo_mode",
         "app.model_registry",
         "app.tenant",
+        "llama_cpp",
+        "llama_cpp.llama_cpp",
         # Auth / crypto
         "jose",
         "jose.jwt",

@@ -57,9 +57,11 @@ qrcode[pil]==7.4.2
 # NOTE: llama-cpp-python and pywebview are NOT needed for development
 # Install them only when building the production desktop installer:
 #
-#   pip install llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
+#   pip install llama-cpp-python==0.3.0 --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
 #   pip install pywebview==4.4.1
 #
+# Pinned to 0.3.0: newer builds' CPU "repack" GEMM kernels (q4_K_8x8) crash with
+# STATUS_ILLEGAL_INSTRUCTION (0xc000001d) on CPUs without AVX-VNNI (e.g. Skylake i5-6300U).
 # For dev just set DEMO_MODE=true in .env to use the Anthropic API instead.
 
 # Build (production only)
