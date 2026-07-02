@@ -15,6 +15,8 @@ __pycache__/
 # Build outputs
 dist/
 build/
+frontend/release/
+backend/backend-dist/
 
 # IDE
 .vscode/
